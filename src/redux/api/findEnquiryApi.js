@@ -104,24 +104,24 @@ export const postFindEnquiryApi = async (rowData) => {
     }
 
     // Step 4: If status is Complete, update indent table
-    // if (rowData.status === "Complete") {
-    //   const now = new Date();
-    //   const formattedDate = now.toISOString().split("T")[0];
+    if (rowData.status === "Complete") {
+      const now = new Date();
+      const formattedDate = now.toISOString().split("T")[0];
 
-    //   const { error: indentError } = await supabase
-    //     .from("indent")
-    //     .update({
-    //       status: "Complete",
-    //       actual: formattedDate,
-    //     })
-    //     .eq("indent_no", rowData.indentNo);
+      const { error: indentError } = await supabase
+        .from("indent")
+        .update({
+          status: "Complete",
+          actual: formattedDate,
+        })
+        .eq("indent_no", rowData.indentNo);
 
-    //   if (indentError) {
-    //     console.error("Error updating indent:", indentError);
-    //   } else {
-    //     console.log("Indent updated successfully");
-    //   }
-    // }
+      if (indentError) {
+        console.error("Error updating indent:", indentError);
+      } else {
+        console.log("Indent updated successfully");
+      }
+    }
 
     return enquiryRow;
   } catch (error) {

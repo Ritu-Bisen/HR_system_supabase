@@ -36,11 +36,15 @@ const afterJoiningSlice = createSlice({
             state.loading = true;
             state.error = null;
           })
-          .addCase(afterJoiningDataPost.fulfilled, (state, action) => {
-            state.loading = false;
-            // action.payload is an array of inserted rows
-            state.afterJoining.push(...action.payload);
-          })
+        .addCase(afterJoiningDataPost.fulfilled, (state, action) => {
+  state.loading = false;
+  if (Array.isArray(action.payload)) {
+    state.afterJoining.push(...action.payload);
+  } else if (action.payload) {
+    state.afterJoining.push(action.payload);
+  }
+})
+
           .addCase(afterJoiningDataPost.rejected, (state, action) => {
             state.loading = false;
             state.error = action.payload;

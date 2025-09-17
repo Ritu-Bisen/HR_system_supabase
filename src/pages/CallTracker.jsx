@@ -185,6 +185,21 @@ const fetchFollowUpData = async () => {
   }
 };
 
+// Fetch initial data
+  useEffect(() => {
+    fetchData();
+  }, [dispatch]);
+
+  const fetchData = async () => {
+    try {
+      await dispatch(enquiryDataForProcessing());
+      await dispatch(followUpForHistory());
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch data");
+    }
+  };
+
   useEffect(() => {
     fetchEnquiryData();
     fetchFollowUpData();
@@ -217,140 +232,140 @@ const fetchFollowUpData = async () => {
   };
 
 
-const postToSheet = async (rowData) => {
-  const URL = 'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec';
+// const postToSheet = async (rowData) => {
+//   const URL = 'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec';
 
-  try {
-    console.log('Attempting to post:', {
-      sheetName: 'Follow - Up',
-      rowData: rowData
-    });
+//   try {
+//     console.log('Attempting to post:', {
+//       sheetName: 'Follow - Up',
+//       rowData: rowData
+//     });
 
-    const params = new URLSearchParams();
-    params.append('sheetName', 'Follow - Up');
-    params.append('action', 'insert');
-    params.append('rowData', JSON.stringify(rowData));
+//     const params = new URLSearchParams();
+//     params.append('sheetName', 'Follow - Up');
+//     params.append('action', 'insert');
+//     params.append('rowData', JSON.stringify(rowData));
 
-    const response = await fetch(URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params,
-    });
+//     const response = await fetch(URL, {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/x-www-form-urlencoded',
+//       },
+//       body: params,
+//     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
+//     if (!response.ok) {
+//       const errorText = await response.text();
+//       throw new Error(`HTTP ${response.status}: ${errorText}`);
+//     }
 
-    const data = await response.json();
-    console.log('Server response:', data);
+//     const data = await response.json();
+//     console.log('Server response:', data);
 
-    if (!data.success) {
-      throw new Error(data.error || 'Server returned unsuccessful response');
-    }
+//     if (!data.success) {
+//       throw new Error(data.error || 'Server returned unsuccessful response');
+//     }
 
-    return data;
-  } catch (error) {
-    console.error('Full error details:', {
-      error: error.message,
-      stack: error.stack,
-      rowData: rowData,
-      timestamp: new Date().toISOString()
-    });
-    throw new Error(`Failed to update sheet: ${error.message}`);
-  }
-};
+//     return data;
+//   } catch (error) {
+//     console.error('Full error details:', {
+//       error: error.message,
+//       stack: error.stack,
+//       rowData: rowData,
+//       timestamp: new Date().toISOString()
+//     });
+//     throw new Error(`Failed to update sheet: ${error.message}`);
+//   }
+// };
 
-const updateEnquirySheet = async (enquiryNo) => {
-  const URL = 'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec';
+// const updateEnquirySheet = async (enquiryNo) => {
+//   const URL = 'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec';
 
-  try {
-    console.log('Attempting to update ENQUIRY sheet for:', enquiryNo);
+//   try {
+//     console.log('Attempting to update ENQUIRY sheet for:', enquiryNo);
 
-    // First, fetch the ENQUIRY sheet data to find the correct row
-    const fetchResponse = await fetch(
-      `${URL}?sheet=ENQUIRY&action=fetch`
-    );
+//     // First, fetch the ENQUIRY sheet data to find the correct row
+//     const fetchResponse = await fetch(
+//       `${URL}?sheet=ENQUIRY&action=fetch`
+//     );
 
-    if (!fetchResponse.ok) {
-      throw new Error(`HTTP error! status: ${fetchResponse.status}`);
-    }
+//     if (!fetchResponse.ok) {
+//       throw new Error(`HTTP error! status: ${fetchResponse.status}`);
+//     }
 
-    const fetchResult = await fetchResponse.json();
+//     const fetchResult = await fetchResponse.json();
     
-    if (!fetchResult.success || !fetchResult.data) {
-      throw new Error('Failed to fetch ENQUIRY sheet data');
-    }
+//     if (!fetchResult.success || !fetchResult.data) {
+//       throw new Error('Failed to fetch ENQUIRY sheet data');
+//     }
 
-    // Find the row with matching enquiry number (Column C is index 2)
-    let targetRowIndex = -1;
-    const sheetData = fetchResult.data;
+//     // Find the row with matching enquiry number (Column C is index 2)
+//     let targetRowIndex = -1;
+//     const sheetData = fetchResult.data;
     
-    for (let i = 0; i < sheetData.length; i++) {
-      if (sheetData[i][2] === enquiryNo) { // Column C (index 2)
-        targetRowIndex = i + 1; // Convert to 1-based index for Google Sheets
-        break;
-      }
-    }
+//     for (let i = 0; i < sheetData.length; i++) {
+//       if (sheetData[i][2] === enquiryNo) { // Column C (index 2)
+//         targetRowIndex = i + 1; // Convert to 1-based index for Google Sheets
+//         break;
+//       }
+//     }
 
-    if (targetRowIndex === -1) {
-      throw new Error(`Enquiry number ${enquiryNo} not found in ENQUIRY sheet`);
-    }
+//     if (targetRowIndex === -1) {
+//       throw new Error(`Enquiry number ${enquiryNo} not found in ENQUIRY sheet`);
+//     }
 
-    console.log(`Found enquiry ${enquiryNo} at row ${targetRowIndex}`);
+//     console.log(`Found enquiry ${enquiryNo} at row ${targetRowIndex}`);
 
-    // Format current date and time as 9/21/2020 14:21:19
-    const now = new Date();
-    const month = now.getMonth() + 1; // getMonth() returns 0-11
-    const day = now.getDate();
-    const year = now.getFullYear();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
+//     // Format current date and time as 9/21/2020 14:21:19
+//     const now = new Date();
+//     const month = now.getMonth() + 1; // getMonth() returns 0-11
+//     const day = now.getDate();
+//     const year = now.getFullYear();
+//     const hours = now.getHours();
+//     const minutes = now.getMinutes();
+//     const seconds = now.getSeconds();
     
-    const formattedDateTime = `${month}/${day}/${year} ${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+//     const formattedDateTime = `${month}/${day}/${year} ${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-    // Now update the specific cell using updateCell action
-    const params = new URLSearchParams();
-    params.append('sheetName', 'ENQUIRY');
-    params.append('action', 'updateCell');
-    params.append('rowIndex', targetRowIndex.toString());
-    params.append('columnIndex', '27'); // Column AA is index 27 (1-based)
-    params.append('value', formattedDateTime);
+//     // Now update the specific cell using updateCell action
+//     const params = new URLSearchParams();
+//     params.append('sheetName', 'ENQUIRY');
+//     params.append('action', 'updateCell');
+//     params.append('rowIndex', targetRowIndex.toString());
+//     params.append('columnIndex', '27'); // Column AA is index 27 (1-based)
+//     params.append('value', formattedDateTime);
 
-    const response = await fetch(URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params,
-    });
+//     const response = await fetch(URL, {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/x-www-form-urlencoded',
+//       },
+//       body: params,
+//     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
+//     if (!response.ok) {
+//       const errorText = await response.text();
+//       throw new Error(`HTTP ${response.status}: ${errorText}`);
+//     }
 
-    const data = await response.json();
-    console.log('ENQUIRY sheet update response:', data);
+//     const data = await response.json();
+//     console.log('ENQUIRY sheet update response:', data);
 
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to update ENQUIRY sheet');
-    }
+//     if (!data.success) {
+//       throw new Error(data.error || 'Failed to update ENQUIRY sheet');
+//     }
 
-    return data;
-  } catch (error) {
-    console.error('Error updating ENQUIRY sheet:', {
-      error: error.message,
-      stack: error.stack,
-      enquiryNo: enquiryNo,
-      timestamp: new Date().toISOString()
-    });
-    throw new Error(`Failed to update ENQUIRY sheet: ${error.message}`);
-  }
-};
+//     return data;
+//   } catch (error) {
+//     console.error('Error updating ENQUIRY sheet:', {
+//       error: error.message,
+//       stack: error.stack,
+//       enquiryNo: enquiryNo,
+//       timestamp: new Date().toISOString()
+//     });
+//     throw new Error(`Failed to update ENQUIRY sheet: ${error.message}`);
+//   }
+// };
 
 // utils/dateFormatter.js
  const formatDateTime=(isoString)=>{
@@ -399,42 +414,58 @@ const formatDOB = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  setSubmitting(true);
+ const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
 
-  if (!formData.candidateSays || !formData.status) {
-    toast.error("Please fill all required fields");
-    setSubmitting(false);
-    return;
-  }
+    if (!formData.candidateSays || !formData.status) {
+      toast.error("Please fill all required fields");
+      setSubmitting(false);
+      return;
+    }
 
-  try {
-    const formattedNextDate = formData.nextDate
-      ? new Date(formData.nextDate).toISOString().split("T")[0]
-      : null;
+    try {
+      const formattedNextDate = formData.nextDate
+        ? new Date(formData.nextDate).toISOString().split("T")[0]
+        : null;
 
-    // send a plain object (not array)
-    const rowData = {
-      enquiry_no: selectedItem.candidate_enquiry_no || "",
-      status: formData.status,
-      candidate_says: formData.candidateSays,
-      next_date: formattedNextDate || null,
-    };
+      const rowData = {
+        enquiry_no: selectedItem.candidate_enquiry_no || "",
+        status: formData.status,
+        candidate_says: formData.candidateSays,
+        next_date: formattedNextDate || null,
+      };
 
-    dispatch(followUpDataSlice(rowData));
+      // Submit the follow-up data
+      const result = await dispatch(followUpDataSlice(rowData));
+      
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to update follow-up");
+      }
 
-    toast.success("Update successful!");
-    setShowModal(false);
-    fetchEnquiryData();
-    fetchFollowUpData();
-  } catch (error) {
-    console.error("Submission failed:", error);
-    toast.error(`Failed to update: ${error.message}`);
-  } finally {
-    setSubmitting(false);
-  }
-};
+      toast.success("Update successful!");
+      
+      // Close the modal
+      setShowModal(false);
+      
+      // Reset form data
+      setFormData({
+        candidateSays: '',
+        status: '',
+        nextDate: ''
+      });
+      
+      // Refresh data from the backend
+      await fetchData();
+      
+    } catch (error) {
+      console.error("Submission failed:", error);
+      toast.error(`Failed to update: ${error.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
 
 
   const filteredPendingData = enquiryForCall.filter(item => {

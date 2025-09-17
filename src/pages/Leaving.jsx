@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Filter, Search, Clock, CheckCircle, X } from 'lucide-react';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const Leaving = () => {
   const [activeTab, setActiveTab] = useState('pending');
@@ -26,129 +27,121 @@ const fetchJoiningData = async () => {
   setError(null);
 
   try {
-    const response = await fetch(
-      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to fetch data from JOINING sheet');
-    }
-    
-    const rawData = result.data || result;
-    
-    if (!Array.isArray(rawData)) {
-      throw new Error('Expected array data not received');
+    // Fetch only the columns you need
+    const { data, error } = await supabase
+      .from("joining")
+      .select(`
+        id,
+        joining_no,
+        name_as_per_aadhar,
+        father_name,
+        date_of_joining,
+        designation,
+        department,
+        mobile_no,
+        planned_date,
+        actual_date,
+        leaving_date,
+        reason,
+        assign_assets
+      `);
+
+    if (error) {
+      throw error;
     }
 
-    const headers = rawData[5];
-    const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-    
-    const getIndex = (headerName) => {
-      const index = headers.findIndex(h => 
-        h && h.toString().trim().toLowerCase() === headerName.toLowerCase()
-      );
-      return index;
-    };
+    if (!data || !Array.isArray(data)) {
+      throw new Error("Expected array data not received from Supabase");
+    }
 
-    const processedData = dataRows.map((row, index) => ({
-      rowIndex: index + 7, // Actual row number in sheet (starting from row 7)
-      employeeNo: row[getIndex('SKA-Joining ID')] || row[1] || '', // Column B (index 1)
-      candidateName: row[getIndex('Name As Per Aadhar')] || row[2] || '', // Column C (index 2)
-      fatherName: row[getIndex('Father Name')] || row[3] || '', // Column D (index 3)
-      dateOfJoining: row[getIndex('Date Of Joining')] || row[4] || '', // Column E (index 4)
-      designation: row[getIndex('Designation')] || row[5] || '', // Column F (index 5)
-      department: row[getIndex('Department')] || row[20] || '', // Column U (index 20)
-      mobileNo: row[getIndex('Mobile No.')] || '',
-      firmName: row[getIndex('Joining Company Name')] || '', 
-      workingPlace: row[getIndex('Joining Place')] || '',
-      plannedDate: row[getIndex('Planned Date')] || '',
-      actual: row[getIndex('Actual')] || '',
-      // Get values from specific column indices
-      leavingDate: row[24] || '', // Column Y (index 24)
-      reason: row[25] || '', // Column Z (index 25)
-      columnAB: row[27] || '', // Column AB (index 27)
+    // Map into frontend-friendly keys
+    const processedData = data.map((row) => ({
+      id: row.id,
+      employeeNo: row.joining_no || "",
+      candidateName: row.name_as_per_aadhar || "",
+      fatherName: row.father_name || "",
+      dateOfJoining: row.date_of_joining || "",
+      designation: row.designation || "",
+      department: row.department || "",
+      mobileNo: row.mobile_no || "",
+      plannedDate: row.planned_date || "",
+      actualDate: row.actual_date || "",
+      leavingDate: row.leaving_date || "",
+      reason: row.reason || "",
+      assignAssets: row.assign_assets || "",
     }));
 
-    // Filter for employees with non-null value in AQ and null value in AO
-    const pendingLeavingTasks = processedData.filter(
-      (task) => task.columnAB && !task.leavingDate
+    // 👉 Filter like you wanted:
+    // Pending = planned_date not null && actual_date is null
+    const pending = processedData.filter(
+      (item) => item.actualDate && !item.leavingDate
     );
-    
-    setPendingData(pendingLeavingTasks);
-  } catch (error) {
-    console.error('Error fetching joining data:', error);
-    setError(error.message);
-    toast.error(`Failed to load joining data: ${error.message}`);
+
+    // History = planned_date not null && actual_date not null
+    // const history = processedData.filter(
+    //   (item) => item.plannedDate && item.actualDate
+    // );
+
+    setPendingData(pending);
+   // setHistoryData(history);
+  } catch (err) {
+    console.error("Error fetching joining data:", err);
+    setError(err.message);
+    toast.error(`Failed to load joining data: ${err.message}`);
   } finally {
     setLoading(false);
     setTableLoading(false);
   }
 };
 
+
+
   // Fetch leaving data
   const fetchLeavingData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from LEAVING sheet');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
+  try {
+    // Fetch all data from the 'leaving' table
+    const { data, error } = await supabase
+      .from('leaving')
+      .select('*')
+      .order('timestamp', { ascending: false }); // optional: sort by latest
 
-      // Process data starting from row 7 (index 6) - skip headers
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-      
-      const processedData = dataRows.map(row => ({
-        timestamp: row[0] || '',
-        employeeId: row[1] || '',
-        name: row[2] || '',
-        dateOfLeaving: row[3] || '',
-        mobileNo: row[4] || '',
-        reasonOfLeaving: row[5] || '',
-        firmName: row[6] || '',
-        fatherName: row[7] || '', 
-        dateOfJoining: row[8] || '', 
-        workingLocation: row[9] || '', 
-        designation: row[10] || '', 
-        department: row[11] || '', 
-        plannedDate: row[12] || '', 
-        actual: row[13] || '', 
-      }));
-
-      const historyTasks = processedData;
-      setHistoryData(historyTasks);
-    } catch (error) {
-      console.error('Error fetching leaving data:', error);
-      setError(error.message);
-      toast.error(`Failed to load leaving data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
+    if (error) {
+      throw error;
     }
-  };
+
+    // Map Supabase data to your frontend format
+    const processedData = (data || []).map(item => ({
+      timestamp: item.timestamp || '',
+      employeeId: item.employee_id || '',
+      name: item.employee_name || '',
+      dateOfLeaving: item.date_of_leaving || '',
+      mobileNo: item.mobile_no || '',
+      reasonOfLeaving: item.reason_of_leaving || '',
+      firmName: item.firm_name || '',
+      fatherName: item.father_name || '',
+      dateOfJoining: item.date_of_joining || '',
+      workingLocation: item.work_location || '',
+      designation: item.designation || '',
+      department: item.department || '',
+      plannedDate: item.planned_date || '', // if you have this column
+      actual: item.actual_date || '', // if you have this column
+    }));
+
+    setHistoryData(processedData);
+  } catch (error) {
+    console.error('Error fetching leaving data:', error);
+    setError(error.message);
+    toast.error(`Failed to load leaving data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchJoiningData();
@@ -217,134 +210,80 @@ const fetchJoiningData = async () => {
 
 const handleSubmit = async (e) => {
   e.preventDefault();
+
   if (!formData.dateOfLeaving || !formData.reasonOfLeaving) {
-    toast.error('Please fill all required fields');
+    toast.error("Please fill all required fields");
     return;
   }
 
   try {
     setSubmitting(true);
+
     const now = new Date();
-    const formattedTimestamp = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()} `;
-    
-    // Format date for JOINING sheet (dd/mm/yyyy)
-    const formattedLeavingDate = formatDOB(formData.dateOfLeaving);
-    
-    const rowData = [
-      formattedTimestamp,
-      selectedItem.employeeNo,
-      selectedItem.candidateName,
-      formattedLeavingDate,
-      formData.mobileNumber,
-      formData.reasonOfLeaving,
-      selectedItem.firmName,
-      selectedItem.fatherName,
-      formatDOB(selectedItem.dateOfJoining),
-      selectedItem.workingPlace,
-      selectedItem.designation,
-      selectedItem.department, // Changed from salary to department
-    ];
 
-    // First, update the JOINING sheet with leaving date (Column Y, index 24)
-    const updateJoiningParams = new URLSearchParams({
-      sheetName: 'JOINING',
-      action: 'updateCell',
-      rowIndex: selectedItem.rowIndex.toString(),
-      columnIndex: '25', // Column Y is index 25 (0-based index + 1 for Sheets)
-      value: formattedLeavingDate,
-    });
+    // Timestamp in ISO format for Supabase timestamp column
+    const formattedTimestamp = now.toISOString(); // e.g., 2025-09-17T10:30:00.000Z
 
-    const updateJoiningResponse = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-      method: 'POST',
-      body: updateJoiningParams,
-    });
+    // Date for Supabase date column (YYYY-MM-DD)
+    const formattedLeavingDate = new Date(formData.dateOfLeaving)
+      .toISOString()
+      .split("T")[0]; // e.g., 2025-09-17
 
-    const updateText = await updateJoiningResponse.text();
-    let updateResult;
-    
-    try {
-      updateResult = JSON.parse(updateText);
-    } catch (parseError) {
-      console.error('Failed to parse JOINING update response:', updateText);
-      throw new Error(`Server returned invalid response: ${updateText.substring(0, 100)}...`);
-    }
-    
-    if (!updateResult.success) {
-      throw new Error(updateResult.error || 'Failed to update JOINING sheet');
+    // 1️⃣ Update JOINING table -> only leaving_date
+    const { error: updateError } = await supabase
+      .from("joining")
+      .update({
+        leaving_date: formattedLeavingDate,
+        reason: formData.reasonOfLeaving,
+      })
+      .eq("id", selectedItem.id);
+
+    if (updateError) {
+      throw updateError;
     }
 
-    // Update reason in JOINING sheet (Column Z, index 25)
-    const updateReasonParams = new URLSearchParams({
-      sheetName: 'JOINING',
-      action: 'updateCell',
-      rowIndex: selectedItem.rowIndex.toString(),
-      columnIndex: '26', // Column Z is index 26 (0-based index + 1 for Sheets)
-      value: formData.reasonOfLeaving,
-    });
+    // 2️⃣ Insert into LEAVING table
+    const { error: insertError } = await supabase.from("leaving").insert([
+      {
+        timestamp: formattedTimestamp, // timestamp column
+        employee_id: selectedItem.employeeNo,
+        employee_name: selectedItem.candidateName,
+        date_of_leaving: formattedLeavingDate, // date column
+        mobile_no: formData.mobileNumber,
+        reason_of_leaving: formData.reasonOfLeaving,
+        firm_name: selectedItem.firmName,
+        father_name: selectedItem.fatherName,
+        date_of_joining: selectedItem.dateOfJoining, // make sure this is also YYYY-MM-DD
+        work_location: selectedItem.workingPlace,
+        designation: selectedItem.designation,
+        department: selectedItem.department,
+      },
+    ]);
 
-    const updateReasonResponse = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-      method: 'POST',
-      body: updateReasonParams,
-    });
-
-    const updateReasonText = await updateReasonResponse.text();
-    let updateReasonResult;
-    
-    try {
-      updateReasonResult = JSON.parse(updateReasonText);
-    } catch (parseError) {
-      console.error('Failed to parse JOINING reason update response:', updateReasonText);
-      throw new Error(`Server returned invalid response: ${updateReasonText.substring(0, 100)}...`);
-    }
-    
-    if (!updateReasonResult.success) {
-      throw new Error(updateReasonResult.error || 'Failed to update reason in JOINING sheet');
+    if (insertError) {
+      throw insertError;
     }
 
-    // Then, insert the leaving record
-    const insertParams = new URLSearchParams({
-      sheetName: 'LEAVING',
-      action: 'insert',
-      rowData: JSON.stringify(rowData),
+    // Reset form and refresh UI
+    setFormData({
+      dateOfLeaving: "",
+      reasonOfLeaving: "",
     });
+    setShowModal(false);
+    toast.success("Leaving request added successfully!");
+    setSelectedItem(null);
 
-    const insertResponse = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-      method: 'POST',
-      body: insertParams,
-    });
-
-    const insertText = await insertResponse.text();
-    let insertResult;
-    
-    try {
-      insertResult = JSON.parse(insertText);
-    } catch (parseError) {
-      console.error('Failed to parse LEAVING insert response:', insertText);
-      throw new Error(`Server returned invalid response: ${insertText.substring(0, 100)}...`);
-    }
-
-    if (insertResult.success) {
-      setFormData({
-        dateOfLeaving: '',
-        reasonOfLeaving: '',
-      });
-      setShowModal(false);
-      toast.success('Leaving request added successfully!');
-      setSelectedItem(null);
-      
-      // Refresh both datasets
-      await fetchJoiningData();
-      await fetchLeavingData();
-    } else {
-      throw new Error(insertResult.error || 'Failed to insert into LEAVING sheet');
-    }
+    // Refresh both datasets
+    await fetchJoiningData();
+    await fetchLeavingData();
   } catch (error) {
-    console.error('Submit error:', error);
-    toast.error('Something went wrong: ' + error.message);
+    console.error("Submit error:", error);
+    toast.error("Something went wrong: " + error.message);
   } finally {
     setSubmitting(false);
   }
 };
+
 
   return (
     <div className="space-y-6">
@@ -405,7 +344,7 @@ const handleSubmit = async (e) => {
                 <thead className="bg-gray-100 ">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKA-Joining ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joining ID</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Father Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Of Joining</th>

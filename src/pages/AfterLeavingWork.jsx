@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const AfterLeavingWork = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,71 +22,61 @@ const AfterLeavingWork = () => {
     removeBenefitEnrollment: false
   });
 
-  const fetchLeavingData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
+const fetchLeavingData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from LEAVING sheet');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
+  try {
+    // Fetch all leaving data from Supabase
+    const { data, error } = await supabase
+      .from('leaving')
+      .select('*')
+      .order('timestamp', { ascending: false }); // optional: latest first
 
-      // Process data starting from row 7 (index 6) - skip headers
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-      
-      const processedData = dataRows.map(row => ({
-        timestamp: row[0] || '',
-        employeeId: row[1] || '',
-        name: row[2] || '',
-        dateOfLeaving: row[3] || '',
-        mobileNo: row[4] || '',
-        reasonOfLeaving: row[5] || '',
-        firmName: row[6] || '',
-        fatherName: row[7] || '', 
-        dateOfJoining: row[8] || '', 
-        workingLocation: row[9] || '', 
-        designation: row[10] || '', 
-        salary: row[11] || '', 
-        plannedDate: row[12] || '', 
-        actual: row[13] || ''
-      }));
-
-      const pendingTasks = processedData.filter(
-        task => task.plannedDate && !task.actual
-      );
-      setPendingData(pendingTasks);
-      
-      const historyTasks = processedData.filter(
-        task => task.plannedDate && task.actual
-      );
-      setHistoryData(historyTasks);
-     
-    } catch (error) {
-      console.error('Error fetching leaving data:', error);
-      setError(error.message);
-      toast.error(`Failed to load leaving data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
+    if (error) {
+      throw error;
     }
-  };
+
+    // Map Supabase data to your frontend format
+    const processedData = (data || []).map(item => ({
+      timestamp: item.timestamp || '',
+      employeeId: item.employee_id || '',
+      name: item.employee_name || '',
+      dateOfLeaving: item.date_of_leaving || '',
+      mobileNo: item.mobile_no || '',
+      reasonOfLeaving: item.reason_of_leaving || '',
+      firmName: item.firm_name || '',
+      fatherName: item.father_name || '',
+      dateOfJoining: item.date_of_joining || '',
+      workingLocation: item.work_location || '',
+      designation: item.designation || '',
+      salary: item.salary || '', // if you have this column
+      plannedDate: item.planned_date || '', // if you have this column
+      actual: item.actual || '', // if you have this column
+    }));
+
+    // Filter pending and history tasks
+    const pendingTasks = processedData.filter(
+      task => task.plannedDate && !task.actual
+    );
+    setPendingData(pendingTasks);
+
+    const historyTasks = processedData.filter(
+      task => task.plannedDate && task.actual
+    );
+    setHistoryData(historyTasks);
+
+  } catch (error) {
+    console.error('Error fetching leaving data:', error);
+    setError(error.message);
+    toast.error(`Failed to load leaving data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchLeavingData();
