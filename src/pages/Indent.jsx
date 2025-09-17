@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { HistoryIcon, Plus, X } from 'lucide-react';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';
+import { useDispatch, useSelector } from 'react-redux';
+import { indentDataSlice, indentDetails } from '../redux/slice/indentSlice';
+import { fetchIndentData } from '../redux/api/indentApi';
 
 const Indent = () => {
   const { addIndent } = useDataStore();
@@ -19,9 +22,14 @@ const Indent = () => {
     socialSiteTypes: [], // New field for social site types
   });
   const [indentData, setIndentData] = useState([]);
-  const [loading, setLoading] = useState(false);
+//  const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const{indent,loading}=useSelector((state)=>state.indents)
+  const dispatch =useDispatch();
+  useEffect(()=>{
+dispatch(indentDetails())
+  },[dispatch])
 
   // Social site options
   const socialSiteOptions = [
@@ -53,19 +61,19 @@ const Indent = () => {
 //   loadData();
 // }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
-      setTableLoading(true);
-      const result = await fetchIndentDataFromRow7();
-      if (result.success) {
-        console.log('Data from row 7:', result.data);
-      } else {
-        console.error('Error:', result.error);
-      }
-      setTableLoading(false);
-    };
-    loadData();
-  }, []);
+  // useEffect(() => {
+  //   const loadData = async () => {
+  //     setTableLoading(true);
+  //     const result = await fetchIndentDataFromRow7();
+  //     if (result.success) {
+  //       console.log('Data from row 7:', result.data);
+  //     } else {
+  //       console.error('Error:', result.error);
+  //     }
+  //     setTableLoading(false);
+  //   };
+  //   loadData();
+  // }, []);
 
 const generateIndentNumber = async () => {
   try {
@@ -277,103 +285,85 @@ const fetchLastIndentNumber = async () => {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
 
-    if (
-      !formData.post ||
-      !formData.gender ||
-      !formData.numberOfPost ||
-      !formData.competitionDate ||
-      !formData.socialSite
-    ) {
-      toast.error('Please fill all required fields');
-      return;
-    }
+const handleSubmit = async (e) => {
+  e.preventDefault();
 
-    // Additional validation for experience if prefer is "Experience"
-    if (formData.prefer === 'Experience' && !formData.experience) {
-      toast.error('Please enter experience details');
-      return;
-    }
+  if (
+    !formData.post ||
+    !formData.gender ||
+    !formData.numberOfPost ||
+    !formData.competitionDate ||
+    !formData.socialSite
+  ) {
+    toast.error("Please fill all required fields");
+    return;
+  }
 
-    // Additional validation for social site types if socialSite is "Yes"
-    if (formData.socialSite === 'Yes' && formData.socialSiteTypes.length === 0) {
-      toast.error('Please select at least one social site type');
-      return;
-    }
+  if (formData.prefer === "Experience" && !formData.experience) {
+    toast.error("Please enter experience details");
+    return;
+  }
 
-    try {
-      setSubmitting(true);
-      // Generate indent number and timestamp
-      const indentNumber = await generateIndentNumber();
-      const timestamp = getCurrentTimestamp();
+  if (formData.socialSite === "Yes" && formData.socialSiteTypes.length === 0) {
+    toast.error("Please select at least one social site type");
+    return;
+  }
 
-      // Format the competition date to MM/DD/YYYY for Google Sheets
-      const formattedDate = formatDateForSheet(formData.competitionDate);
-      console.log(indentNumber);
+  try {
+    setSubmitting(true);
 
-      // Prepare row data with additional columns for experience and social site types
-      const rowData = [
-        timestamp,
-        indentNumber,
-        formData.post,
-        formData.gender,
-        formData.prefer,
-        formData.numberOfPost,
-        formattedDate,
-        formData.socialSite,
-        "NeedMore",
-        "", // Column J (empty)
-        "", // Column K (empty)
-        "", // Column L (empty)
-        "", // Column M (empty)
-        "", // Column N (empty)
-        "", // Column O (empty)
-        formData.prefer === 'Experience' ? formData.experience : "", // Column P - Experience
-        formData.socialSite === 'Yes' ? formData.socialSiteTypes.join(', ') : "" // Column Q - Social Site Types
-      ];
+    // Prepare Supabase-friendly date
+    const formattedDate = new Date(formData.competitionDate)
+      .toISOString()
+      .split("T")[0];
 
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-        method: 'POST',
-        body: new URLSearchParams({
-          sheetName: 'INDENT',
-          action: 'insert',
-          rowData: JSON.stringify(rowData),
-        }),
+    // Prepare data to send
+    const rowData = {
+      post: formData.post,
+      gender: formData.gender,
+      prefer: formData.prefer,
+      number_of_post: formData.numberOfPost,
+      competition_date: formattedDate, // YYYY-MM-DD
+      social_site: formData.socialSite,
+      status: "NeedMore",
+      experience: formData.prefer === "Experience" ? formData.experience : null,
+      social_site_types:
+        formData.socialSite === "Yes" ? formData.socialSiteTypes : [], // JSON array
+    };
+
+    // ✅ Dispatch the async thunk
+   const resultAction = await dispatch(indentDataSlice(rowData));
+await dispatch(indentDetails()); 
+if (indentDataSlice.fulfilled.match(resultAction)) {
+  toast.success("Indent submitted successfully!");
+
+      setShowModal(false);
+      setFormData({
+        post: "",
+        gender: "",
+        prefer: "",
+        numberOfPost: "",
+        competitionDate: "",
+        socialSite: "",
+        experience: "",
+        socialSiteTypes: [],
       });
+    } else {
+  toast.error(
+    "Failed to submit indent: " +
+      (resultAction.payload?.message || resultAction.payload || "Unknown error")
+  );
+}
+  
+  } catch (error) {
+    console.error("Insert error:", error);
+    toast.error("Something went wrong!");
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success('Indent submitted successfully!');
-        setFormData({
-          post: '',
-          gender: '',
-          prefer: '',
-          numberOfPost: '',
-          competitionDate: '',
-          socialSite: '',
-          indentNumber: '',
-          timestamp: '',
-          experience: '',
-          socialSiteTypes: [],
-        });
-        setShowModal(false);
-        // Refresh the table data
-        setTableLoading(true);
-        await fetchIndentDataFromRow7();
-        setTableLoading(false);
-      } else {
-        toast.error('Failed to insert: ' + (result.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Insert error:', error);
-      toast.error('Something went wrong!');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   // Helper function to format date for Google Sheets
   const formatDateForSheet = (dateString) => {
@@ -654,10 +644,6 @@ const fetchLastIndentNumber = async () => {
         <h2 className="text-lg font-bold text-gray-800 mb-4">
           Indent Management
         </h2>
-        <p className="text-gray-600">
-          Create new indents for job positions. Once created, indents will be
-          available in the Social Site section for further processing.
-        </p>
       </div>
 
       <div className="bg-white shadow-lg rounded-lg overflow-hidden">
@@ -697,7 +683,7 @@ const fetchLastIndentNumber = async () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
-                {tableLoading ? (
+                {loading ? (
                   <tr>
                     <td colSpan="7" className="px-6 py-12 text-center">
                       <div className="flex justify-center flex-col items-center">
@@ -708,17 +694,17 @@ const fetchLastIndentNumber = async () => {
                       </div>
                     </td>
                   </tr>
-                ) : indentData.length === 0 ? (
+                ) : indent.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="px-6 py-12 text-center">
                       <p className="text-gray-500">No indent data found.</p>
                     </td>
                   </tr>
                 ) : (
-                  indentData.map((item, index) => (
+                  indent.map((item, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {item.indentNumber}
+                        {item.indent_no}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {item.post}
@@ -733,13 +719,13 @@ const fetchLastIndentNumber = async () => {
                         {item.experience}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.noOfPost}
+                        {item.number_of_posts}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="text-sm text-gray-900 break-words">
-                          {item.completionDate
+                          {item.competition_date
                             ? (() => {
-                                const date = new Date(item.completionDate);
+                                const date = new Date(item.competition_date);
                                 if (!date || isNaN(date.getTime()))
                                   return "Invalid date";
                                 const day = date
@@ -777,11 +763,18 @@ const fetchLastIndentNumber = async () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.socialSite}
+                        {item.social_site}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.socialSiteTypes}
-                      </td>
+  {Array.isArray(item.social_site_types) && item.social_site_types.length > 0 ? (
+    item.social_site_types.map((type, index) => (
+      <div key={index}>{index + 1}. {type}</div>
+    ))
+  ) : (
+    "—"
+  )}
+</td>
+
                     </tr>
                   ))
                 )}

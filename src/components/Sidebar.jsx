@@ -49,6 +49,7 @@ const Sidebar = ({ onClose }) => {
     { path: '/indent', icon: FileText, label: 'Indent' },
     { path: '/find-enquiry', icon: Search, label: 'Find Enquiry' },
     { path: '/call-tracker', icon: Phone, label: 'Call Tracker' },
+    { path: '/joining', icon: NotebookPen, label : 'Joining'},
     { path: '/after-joining-work', icon: UserCheck, label: 'After Joining Work' },
     { path: '/leaving', icon: UserX, label: 'Leaving' },
     { path: '/after-leaving-work', icon: UserMinus, label: 'After Leaving Work' },
@@ -179,9 +180,8 @@ const SidebarContent = ({ onClose, isCollapsed = false }) => (
           </div>
           {/* Show user info in mobile view regardless of collapsed state */}
         <div className={`${isCollapsed ? 'hidden' : 'block'} md:block`}>
-  <p className="text-sm font-medium text-white">{user?.Name || user?.Username || 'Guest'}</p>
+  <p className="text-sm font-medium text-white">{user?.name || user?.user_name || 'Guest'}</p>
   <p className="text-xs text-white">{user?.Admin === 'Yes' ? 'Administrator' : 'Employee'}</p>
-
           </div>
         </div>
       </div>

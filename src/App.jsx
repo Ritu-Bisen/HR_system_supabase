@@ -24,6 +24,7 @@ import Attendancedaily from './pages/Attendancedaily';
 import Report from './pages/Report';
 import Payroll from './pages/Payroll';
 import MisReport from './pages/MisReport';
+import Joining from './pages/Joining';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
             {/* <Route path="social-site" element={<SocialSite />} /> */}
             <Route path="find-enquiry" element={<FindEnquiry />} />
             <Route path="call-tracker" element={<CallTracker />} />
+            <Route path='joining' element={<Joining />} />
             <Route path="after-joining-work" element={<AfterJoiningWork />} />
             <Route path="leaving" element={<Leaving />} />
             <Route path="after-leaving-work" element={<AfterLeavingWork />} />

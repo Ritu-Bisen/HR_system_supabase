@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Search, Clock, CheckCircle, X, Upload } from 'lucide-react';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';
+import { useDispatch, useSelector } from 'react-redux';
+import { postFindEnquiryApi } from '../redux/api/findEnquiryApi';
+import {  enquiryDetails, indentForEnquiry } from '../redux/slice/findEnquirySlice';
+import supabase from '../SupabaseClient';
 
 const FindEnquiry = () => {
   const [activeTab, setActiveTab] = useState('pending');
@@ -10,7 +14,7 @@ const FindEnquiry = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [indentData, setIndentData] = useState([]);
   const [enquiryData, setEnquiryData] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [generatingEnquiryNo, setGeneratingEnquiryNo] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -34,13 +38,20 @@ const [formData, setFormData] = useState({
   status: 'NeedMore'
 });
 
+const{indentEnquiry,loading,enquiry}=useSelector((state)=>state.enquiry);
+const dispatch=useDispatch()
+useEffect(()=>{
+  dispatch(indentForEnquiry())
+  dispatch(enquiryDetails())
+},[])
+
   // Google Drive folder ID for file uploads
   const GOOGLE_DRIVE_FOLDER_ID = '173O0ARBt4AmRDFfKwkxrwBsFLK8lTG6r';
 
   // Fetch all necessary data
   const fetchAllData = async () => {
-    setLoading(true);
-    setTableLoading(true);
+    // setLoading(true);
+    // setTableLoading(true);
     setError(null);
     
     try {
@@ -148,32 +159,152 @@ const [formData, setFormData] = useState({
       setError(error.message);
       toast.error('Failed to fetch data');
     } finally {
-      setLoading(false);
+     // setLoading(false);
       setTableLoading(false);
     }
   };
 
-  // Generate candidate number based on existing enquiries
-  const generateCandidateNumber = () => {
-    if (enquiryData.length === 0) {
-      return 'ENQ-01';
+  const getNextEnquiryNumber = async () => {
+  setGeneratingEnquiryNo(true);
+  try {
+    // 1️⃣ Get the highest enquiry number
+    const { data, error } = await supabase
+      .from("enquiry")
+      .select("candidate_enquiry_no")
+      .order("candidate_enquiry_no", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error("Error fetching enquiry number:", error);
+      throw error;
     }
-    
-    // Find the highest existing candidate number
-    const lastNumber = enquiryData.reduce((max, enquiry) => {
-      if (!enquiry.candidateEnquiryNo) return max;
-      
-      const match = enquiry.candidateEnquiryNo.match(/ENQ-(\d+)/i);
-      if (match && match[1]) {
-        const num = parseInt(match[1], 10);
-        return num > max ? num : max;
+
+    let nextNumber = 1;
+
+    if (data && data.length > 0 && data[0].candidate_enquiry_no) {
+      const lastNumber = data[0].candidate_enquiry_no;
+
+      // Extract numeric part (works for ENQ-1, ENQ-01, ENQ-099, etc.)
+      const match = lastNumber.match(/\d+$/);
+      if (match) {
+        nextNumber = parseInt(match[0], 10) + 1;
       }
-      return max;
-    }, 0);
-    
-    const nextNumber = lastNumber + 1;
-    return `ENQ-${String(nextNumber).padStart(2, '0')}`;
-  };
+    }
+
+    // 2️⃣ Format: pad to 2 digits until >= 100
+    let enquiryNo = "";
+    if (nextNumber < 100) {
+      enquiryNo = `ENQ-${String(nextNumber).padStart(2, "0")}`;
+    } else {
+      enquiryNo = `ENQ-${nextNumber}`;
+    }
+
+    setGeneratedCandidateNo(enquiryNo);
+    return enquiryNo;
+  } catch (error) {
+    console.error("Error getting next enquiry number:", error);
+
+    // 3️⃣ Fallback: timestamp-based
+    const timestamp = new Date().getTime();
+    const enquiryNo = `ENQ-${timestamp.toString().slice(-6)}`;
+    setGeneratedCandidateNo(enquiryNo);
+    toast.error(
+      "Could not generate enquiry number from database. Using fallback."
+    );
+    return enquiryNo;
+  } finally {
+    setGeneratingEnquiryNo(false);
+  }
+};
+
+
+
+ // Function to generate enquiry number from Supabase
+//   const generateEnquiryNumber = async () => {
+//     setGeneratingEnquiryNo(true);
+//     try {
+//       // Call a Supabase function to generate the next enquiry number
+//       const { data, error } = await supabase
+//         .rpc('generate_next_enquiry_number');
+      
+//       if (error) {
+//         console.error('Error generating enquiry number:', error);
+//         // Fallback: Generate a simple number if the function fails
+//         const { data: lastEnquiry } = await supabase
+//           .from('enquiry')
+//           .select('candidate_enquiry_no')
+//           .order('created_at', { ascending: false })
+//           .limit(1)
+//           .single();
+        
+//         let nextNumber = 1;
+//         if (lastEnquiry && lastEnquiry.candidate_enquiry_no) {
+//           const match = lastEnquiry.candidate_enquiry_no.match(/\d+/);
+//           if (match) {
+//             nextNumber = parseInt(match[0]) + 1;
+//           }
+//         }
+        
+//         const enquiryNo = `ENQ-${String(nextNumber).padStart(4, '0')}`;
+//         setGeneratedCandidateNo(enquiryNo);
+//         return enquiryNo;
+//       }
+      
+//       setGeneratedCandidateNo(data);
+//       return data;
+//     } catch (error) {
+//       console.error('Error generating enquiry number:', error);
+//       // Final fallback: Use timestamp-based number
+//       const timestamp = new Date().getTime();
+//       const enquiryNo = `ENQ-${timestamp.toString().slice(-6)}`;
+//       setGeneratedCandidateNo(enquiryNo);
+//       console.log(enquiryNo);
+      
+//       return enquiryNo;
+//     } finally {
+//       setGeneratingEnquiryNo(false);
+//     }
+//   };
+// useEffect(() => {
+// generateEnquiryNumber()
+// }, [])
+
+
+
+  // const getNextEnquiryNumber = async () => {
+  //   try {
+  //     // Get the highest existing enquiry number
+  //     const { data, error } = await supabase
+  //       .from('enquiry')
+  //       .select('candidate_enquiry_no')
+  //       .order('candidate_enquiry_no', { ascending: false })
+  //       .limit(1);
+      
+  //     if (error) throw error;
+      
+  //     let nextNumber = 1;
+      
+  //     if (data && data.length > 0 && data[0].candidate_enquiry_no) {
+  //       const lastNumber = data[0].candidate_enquiry_no;
+  //       const match = lastNumber.match(/\d+/);
+  //       if (match) {
+  //         nextNumber = parseInt(match[0]) + 1;
+  //       }
+  //     }
+      
+  //     const enquiryNo = `ENQ-${String(nextNumber).padStart(4, '0')}`;
+  //     setGeneratedCandidateNo(enquiryNo);
+  //     return enquiryNo;
+  //   } catch (error) {
+  //     console.error('Error getting next enquiry number:', error);
+  //     // Fallback to timestamp-based number
+  //     const timestamp = new Date().getTime();
+  //     const enquiryNo = `ENQ-${timestamp.toString().slice(-6)}`;
+  //     setGeneratedCandidateNo(enquiryNo);
+  //     return enquiryNo;
+  //   }
+  // };
+
 
   // Convert file to base64
   const fileToBase64 = (file) => {
@@ -232,7 +363,7 @@ const [formData, setFormData] = useState({
 
   const handleEnquiryClick = (item) => {
     setSelectedItem(item);
-    const candidateNo = generateCandidateNumber();
+    const candidateNo = getNextEnquiryNumber();
     setGeneratedCandidateNo(candidateNo);
     setFormData({
       candidateName: '',
@@ -276,188 +407,62 @@ const handleSubmit = async (e) => {
   setSubmitting(true);
 
   try {
-    let photoUrl = '';
-    let resumeUrl = '';
+    let photoUrl = "";
+    let resumeUrl = "";
 
-    // Upload photo if exists
-    if (formData.candidatePhoto) {
-      setUploadingPhoto(true);
-      photoUrl = await uploadFileToGoogleDrive(formData.candidatePhoto, 'photo');
-      setUploadingPhoto(false);
-      toast.success('Photo uploaded successfully!');
+    // If you want uploads, handle them here (optional)
+    // Example:
+    // if (formData.candidatePhoto) {
+    //   photoUrl = await uploadFileToGoogleDrive(formData.candidatePhoto, "photo");
+    // }
+    // if (formData.candidateResume) {
+    //   resumeUrl = await uploadFileToGoogleDrive(formData.candidateResume, "resume");
+    // }
+
+    const rowData = {
+      indentNo: selectedItem.indent_no,
+      applyingForPost: selectedItem.post,
+      candidateName: formData.candidateName,
+      candidateDOB: formatDOB(formData.candidateDOB),
+      candidatePhone: formData.candidatePhone,
+      candidateEmail: formData.candidateEmail,
+      previousCompany: formData.previousCompany,
+      jobExperience: formData.jobExperience,
+      lastSalary: formData.lastSalary,
+      previousPosition: formData.previousPosition,
+      reasonForLeaving: formData.reasonForLeaving,
+      maritalStatus: formData.maritalStatus,
+      lastEmployerMobile: formData.lastEmployerMobile,
+      candidatePhoto: formData.candidatePhoto,
+      referenceBy: formData.referenceBy,
+      presentAddress: formData.presentAddress,
+      aadharNo: formData.aadharNo,
+      resumeCopy: formData.candidateResume,
+      planned: new Date().toISOString().split("T")[0], // planned as today’s date
+      actual: null,
+      status: formData.status, // ✅ important for indent update
+    };
+
+    console.log("Submitting enquiry:", rowData);
+
+    const response = await postFindEnquiryApi(rowData);
+
+    if (!response) {
+      toast.error("Failed to submit enquiry");
+      return;
     }
 
-    // Upload resume if exists
-    if (formData.candidateResume) {
-      setUploadingResume(true);
-      resumeUrl = await uploadFileToGoogleDrive(formData.candidateResume, 'resume');
-      setUploadingResume(false);
-      toast.success('Resume uploaded successfully!');
-    }
-
-    const now = new Date();
-    const formattedTimestamp = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()} ${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
-
-    const rowData = [
-      formattedTimestamp,                           // Column A: Timestamp
-      selectedItem.indentNo,                        // Column B: Indent Number
-      generatedCandidateNo,                         // Column C: Candidate Enquiry Number
-      selectedItem.post,                            // Column D: Applying For the Post
-      formData.candidateName,                       // Column E: Candidate Name
-      formatDOB(formData.candidateDOB),            // Column F: DCB (DOB)
-      formData.candidatePhone,                      // Column G: Candidate Phone Number
-      formData.candidateEmail,                      // Column H: Candidate Email
-      formData.previousCompany || '',               // Column I: Previous Company Name
-      formData.jobExperience || '',                 // Column J: Job Experience
-      '',                    // Column K: Last Salary
-      formData.previousPosition || '',              // Column L: Previous Position
-      '',              // Column M: Reason For Leaving
-      formData.maritalStatus || '',                 // Column N: Marital Status
-      '',            // Column O: Last Employer Mobile
-      photoUrl,                                     // Column P: Candidate Photo (URL)
-      '',                   // Column Q: Reference By
-      formData.presentAddress || '',                // Column R: Present Address
-      formData.aadharNo || '',                      // Column S: Aadhar No
-      resumeUrl,                                    // Column T: Candidate Resume (URL)
-    ];
-
-    console.log('Submitting to ENQUIRY sheet:', rowData);
-
-    // Submit to ENQUIRY sheet
-    const enquiryResponse = await fetch(
-      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          sheetName: 'ENQUIRY',
-          action: 'insert',
-          rowData: JSON.stringify(rowData)
-        }),
-      }
-    );
-
-    const enquiryResult = await enquiryResponse.json();
-    console.log('ENQUIRY response:', enquiryResult);
-
-    if (!enquiryResult.success) {
-      throw new Error(enquiryResult.error || 'ENQUIRY submission failed');
-    }
-
-    // Only update INDENT sheet if status is Complete
-    if (formData.status === 'Complete') {
-      console.log('Updating INDENT sheet for status Complete');
-      
-      // Fetch INDENT data
-      const indentFetchResponse = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=INDENT&action=fetch'
-      );
-      
-      const indentData = await indentFetchResponse.json();
-      console.log('INDENT data fetched:', indentData);
-
-      if (!indentData.success) {
-        throw new Error('Failed to fetch INDENT data: ' + (indentData.error || 'Unknown error'));
-      }
-
-      // Find the row index
-      let rowIndex = -1;
-      for (let i = 1; i < indentData.data.length; i++) {
-        if (indentData.data[i][1] === selectedItem.indentNo) {
-          rowIndex = i + 1; // Spreadsheet rows start at 1
-          break;
-        }
-      }
-
-      if (rowIndex === -1) {
-        throw new Error(`Could not find indentNo: ${selectedItem.indentNo} in INDENT sheet`);
-      }
-
-      console.log('Found row index:', rowIndex);
-
-      // Get headers
-      const headers = indentData.data[5];
-      console.log('Headers:', headers);
-
-      // Find column indices
-      const getColumnIndex = (columnName) => {
-        return headers.findIndex(h => h && h.toString().trim() === columnName);
-      };
-
-      const statusIndex = getColumnIndex('Status');
-      const actual2Index = getColumnIndex('Actual 2');
-
-      console.log('Status column index:', statusIndex);
-      console.log('Actual 2 column index:', actual2Index);
-
-      // Update Status column
-      if (statusIndex !== -1) {
-        console.log('Updating Status column...');
-        const statusResponse = await fetch(
-          'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-              sheetName: 'INDENT',
-              action: 'updateCell',
-              rowIndex: rowIndex.toString(),
-              columnIndex: (statusIndex + 1).toString(), // Convert to string
-              value: 'Complete'
-            }),
-          }
-        );
-
-        const statusResult = await statusResponse.json();
-        console.log('Status update result:', statusResult);
-
-        if (!statusResult.success) {
-          console.error('Status update failed:', statusResult.error);
-        }
-      }
-
-      // Update Actual 2 column
-      if (actual2Index !== -1) {
-        console.log('Updating Actual 2 column...');
-        const actual2Response = await fetch(
-          'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-              sheetName: 'INDENT',
-              action: 'updateCell',
-              rowIndex: rowIndex.toString(),
-              columnIndex: (actual2Index + 1).toString(), // Convert to string
-              value: formattedTimestamp
-            }),
-          }
-        );
-
-        const actual2Result = await actual2Response.json();
-        console.log('Actual 2 update result:', actual2Result);
-
-        if (!actual2Result.success) {
-          console.error('Actual 2 update failed:', actual2Result.error);
-        }
-      }
-      
-      toast.success('Enquiry submitted and INDENT marked as Complete!');
+    if (formData.status === "Complete") {
+      toast.success("Enquiry submitted and Indent marked Complete!");
     } else {
-      toast.success('Enquiry submitted successfully!');
+      toast.success("Enquiry submitted successfully!");
     }
 
     setShowModal(false);
-    fetchAllData();
+    await dispatch(indentForEnquiry());
 
   } catch (error) {
-    console.error('Submission error:', error);
+    console.error("Submission error:", error);
     toast.error(`Error: ${error.message}`);
   } finally {
     setSubmitting(false);
@@ -465,6 +470,7 @@ const handleSubmit = async (e) => {
     setUploadingResume(false);
   }
 };
+
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -490,16 +496,16 @@ const handleSubmit = async (e) => {
     }
   };
 
-  const filteredPendingData = indentData.filter(item => {
+  const filteredPendingData = indentEnquiry.filter(item => {
     const matchesSearch = item.post?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.indentNo?.toLowerCase().includes(searchTerm.toLowerCase());
+                         item.indent_no?.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
 
-  const filteredHistoryData = historyData.filter(item => {
-    const matchesSearch = item.candidateName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.candidateEnquiryNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.indentNo?.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredHistoryData = enquiry.filter(item => {
+    const matchesSearch = item.candidate_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         item.candidate_enquiry_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         item.indent_no?.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
 
@@ -572,7 +578,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {tableLoading ? (
+                  {loading ? (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center">
                         <div className="flex justify-center flex-col items-center">
@@ -588,8 +594,8 @@ const handleSubmit = async (e) => {
                       </td>
                     </tr>
                   ) : (
-                    filteredPendingData.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
+                    filteredPendingData.map((item,index) => (
+                      <tr key={index} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <button
                             onClick={() => handleEnquiryClick(item)}
@@ -598,13 +604,13 @@ const handleSubmit = async (e) => {
                             Enquiry
                           </button>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.indentNo}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.indent_no}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.post}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.gender}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.prefer || '-'} {item.experience}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.numberOfPost}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.number_of_posts}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.competitionDate ? new Date(item.competitionDate).toLocaleDateString() : '-'}
+                          {item.competition_date ? new Date(item.competition_date).toLocaleDateString() : '-'}
                         </td>
                       </tr>
                     ))
@@ -631,7 +637,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {tableLoading ? (
+                  {loading ? (
                     <tr>
                       <td colSpan="9" className="px-6 py-12 text-center">
                         <div className="flex justify-center flex-col items-center">
@@ -647,19 +653,19 @@ const handleSubmit = async (e) => {
                       </td>
                     </tr>
                   ) : (
-                    filteredHistoryData.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.indentNo}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidateEnquiryNo}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.applyingForPost}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidateName}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidatePhone}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidateEmail}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.jobExperience}</td>
+                    filteredHistoryData.map((item,index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.indent_no}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidate_enquiry_no}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.applying_for_the_post}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidate_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidate_phone_no}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.candidate_email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.job_experience}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.candidatePhoto ? (
+                          {item.candidate_photo ? (
                             <a 
-                              href={item.candidatePhoto} 
+                              href={item.candidate_photo} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="text-indigo-600 hover:text-indigo-800"
@@ -669,9 +675,9 @@ const handleSubmit = async (e) => {
                           ) : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.candidateResume ? (
+                          {item.resume_copy ? (
                             <a 
-                              href={item.candidateResume} 
+                              href={item.resume_copy} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="text-indigo-600 hover:text-indigo-800"
@@ -706,7 +712,7 @@ const handleSubmit = async (e) => {
                   <label className="block text-sm font-medium text-gray-500 mb-1">Indent No.</label>
                   <input
                     type="text"
-                    value={selectedItem.indentNo}
+                    value={selectedItem.indent_no}
                     disabled
                     className="w-full border border-gray-300 border-opacity-30 rounded-md px-3 py-2 bg-white bg-opacity-5 text-gray-500"
                   />
@@ -869,7 +875,7 @@ const handleSubmit = async (e) => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Present Address</label>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Current Address</label>
                 <textarea
                   name="presentAddress"
                   value={formData.presentAddress}

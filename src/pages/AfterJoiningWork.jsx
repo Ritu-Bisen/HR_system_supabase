@@ -1,7 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { Filter, Search, Clock, CheckCircle, X } from 'lucide-react';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';  
+import { useDispatch, useSelector } from 'react-redux';
+import { afterJoiningDataSlice } from '../redux/slice/afterJoiningWorkSlice';
 
 const AfterJoiningWork = () => {
   const [activeTab, setActiveTab] = useState("pending");
@@ -10,10 +13,10 @@ const AfterJoiningWork = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [pendingData, setPendingData] = useState([]);
   const [historyData, setHistoryData] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(null);
+  // const [error, setError] = useState(null);
 
   const [formData, setFormData] = useState({
     checkSalarySlipResume: false,
@@ -21,16 +24,40 @@ const AfterJoiningWork = () => {
     welcomeMeeting: false,
     biometricAccess: false,
     officialEmailId: false,
+    emailId: "",
+    emailPassword: "",
     assignAssets: false,
+    laptopImage: null,
+    laptopImageUrl: "",
+    mobileImage: null,
+    mobileImageUrl: "",
+    vehicleImage: null,
+    vehicleImageUrl: "",
+    otherImage: null,
+    otherImageUrl: "",
     pfEsic: false,
     companyDirectory: false,
+    manualImage: null,
+    manualImageUrl: "",
     assets: [],
   });
 
+    const {afterJoining,loading,error}=useSelector((state)=>state.afterjoin);
+  const dispatch=useDispatch();
+  useEffect(()=>{
+    dispatch(afterJoiningDataSlice())
+
+
+  },[dispatch])
+
+
+  // Google Drive folder ID for storing images
+  const DRIVE_FOLDER_ID = "1Am4QdBpwOGyIawpmlxxVGy1Gv2sAOARU";
+
   const fetchJoiningData = async () => {
-    setLoading(true);
+    // setLoading(true);
     setTableLoading(true);
-    setError(null);
+    // setError(null);
 
     try {
       const response = await fetch(
@@ -64,9 +91,6 @@ const AfterJoiningWork = () => {
           (h) =>
             h && h.toString().trim().toLowerCase() === headerName.toLowerCase()
         );
-        if (index === -1) {
-          console.warn(`Column "${headerName}" not found in sheet`);
-        }
         return index;
       };
 
@@ -128,11 +152,102 @@ const AfterJoiningWork = () => {
       setHistoryData(historyTasks);
     } catch (error) {
       console.error("Error fetching joining data:", error);
-      setError(error.message);
+      // setError(error.message);
       toast.error(`Failed to load joining data: ${error.message}`);
     } finally {
-      setLoading(false);
+      // setLoading(false);
       setTableLoading(false);
+    }
+  };
+
+  // Fetch previous assets data from Assets sheet
+  const fetchAssetsData = async (employeeId) => {
+    try {
+      const response = await fetch(
+        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Assets&action=fetch"
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        // If Assets sheet doesn't exist or no data, return empty
+        return null;
+      }
+
+      const data = result.data || result;
+      if (!Array.isArray(data) || data.length < 2) {
+        return null;
+      }
+
+      // Find the row with matching employee ID (column B, index 1)
+      const matchingRow = data.find((row, index) => {
+        if (index === 0) return false; // Skip header row
+        return row[1]?.toString().trim() === employeeId?.toString().trim();
+      });
+
+      if (matchingRow) {
+        return {
+          emailId: matchingRow[3] || "",
+          emailPassword: matchingRow[4] || "",
+          laptopImageUrl: matchingRow[5] || "",
+          mobileImageUrl: matchingRow[6] || "",
+          vehicleImageUrl: matchingRow[7] || "",
+          otherImageUrl: matchingRow[8] || "",
+          manualImageUrl: matchingRow[9] || ""
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error fetching assets data:", error);
+      return null;
+    }
+  };
+
+  // Upload image to Google Drive
+  const uploadImageToDrive = async (file, fileName) => {
+    try {
+      const reader = new FileReader();
+      return new Promise((resolve, reject) => {
+        reader.onload = async () => {
+          try {
+            const base64Data = reader.result;
+            const response = await fetch(
+              "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({
+                  action: "uploadFile",
+                  base64Data: base64Data,
+                  fileName: fileName,
+                  mimeType: file.type,
+                  folderId: DRIVE_FOLDER_ID,
+                }).toString(),
+              }
+            );
+
+            const result = await response.json();
+            if (result.success) {
+              resolve(result.fileUrl);
+            } else {
+              reject(new Error(result.error || "Upload failed"));
+            }
+          } catch (error) {
+            reject(error);
+          }
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+    } catch (error) {
+      throw new Error(`Upload failed: ${error.message}`);
     }
   };
 
@@ -141,129 +256,264 @@ const AfterJoiningWork = () => {
   }, []);
 
 const handleAfterJoiningClick = async (item) => {
-  setFormData({
-    checkSalarySlipResume: false,
-    offerLetterReceived: false,
-    welcomeMeeting: false,
-    biometricAccess: false,
-    officialEmailId: false,
-    assignAssets: false,
-    pfEsic: false,
-    companyDirectory: false,
-    assets: [],
-  });
-  
-  setSelectedItem(item);
-  setShowModal(true);
-  setLoading(true);
+    // Reset form data first
+    setFormData({
+      checkSalarySlipResume: false,
+      offerLetterReceived: false,
+      welcomeMeeting: false,
+      biometricAccess: false,
+      officialEmailId: false,
+      emailId: "",
+      emailPassword: "",
+      assignAssets: false,
+      laptopImage: null,
+      laptopImageUrl: "",
+      mobileImage: null,
+      mobileImageUrl: "",
+      vehicleImage: null,
+      vehicleImageUrl: "",
+      otherImage: null,
+      otherImageUrl: "",
+      pfEsic: false,
+      companyDirectory: false,
+      manualImage: null,
+      manualImageUrl: "",
+      assets: [],
+    });
+    
+    setSelectedItem(item);
+    setShowModal(true);
+    // setLoading(true);
 
-  try {
-    const fullDataResponse = await fetch(
-      "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch"
-    );
+    try {
+      // Fetch previous assets data first
+      const assetsData = await fetchAssetsData(item.joiningNo);
 
-    if (!fullDataResponse.ok) {
-      throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
+      const fullDataResponse = await fetch(
+        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch"
+      );
+
+      if (!fullDataResponse.ok) {
+        throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
+      }
+
+      const fullDataResult = await fullDataResponse.json();
+      const allData = fullDataResult.data || fullDataResult;
+
+      // Look for header row with "SKA-Joining ID" instead of "Employee ID"
+      let headerRowIndex = allData.findIndex((row) =>
+        row.some((cell) =>
+          cell?.toString().trim().toLowerCase().includes("ska-joining id")
+        )
+      );
+      if (headerRowIndex === -1) headerRowIndex = 5;
+
+      const headers = allData[headerRowIndex].map((h) => h?.toString().trim());
+
+      // Use "SKA-Joining ID" instead of "Employee ID"
+      const employeeIdIndex = headers.findIndex(
+        (h) => h?.toLowerCase() === "ska-joining id"
+      );
+      if (employeeIdIndex === -1) {
+        throw new Error("Could not find 'SKA-Joining ID' column");
+      }
+
+      const rowIndex = allData.findIndex(
+        (row, idx) =>
+          idx > headerRowIndex &&
+          row[employeeIdIndex]?.toString().trim() ===
+            item.joiningNo?.toString().trim()
+      );
+
+      if (rowIndex === -1)
+        throw new Error(`Employee ${item.joiningNo} not found`);
+
+      // Updated column indices
+      const actualColumnIndex = 27; // Column AB (0-based index: 27)
+      const startColumnIndex = 29; // Column AD (0-based index: 29)
+
+      const currentValues = {
+        checkSalarySlipResume:
+          allData[rowIndex][startColumnIndex] // Column AD
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        offerLetterReceived:
+          allData[rowIndex][startColumnIndex + 1] // Column AE
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        welcomeMeeting:
+          allData[rowIndex][startColumnIndex + 2] // Column AF
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        biometricAccess:
+          allData[rowIndex][startColumnIndex + 3] // Column AG
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        officialEmailId:
+          allData[rowIndex][startColumnIndex + 4] // Column AH
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        assignAssets:
+          allData[rowIndex][startColumnIndex + 5] // Column AI
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        pfEsic:
+          allData[rowIndex][startColumnIndex + 6] // Column AJ
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+        companyDirectory:
+          allData[rowIndex][startColumnIndex + 7] // Column AK
+            ?.toString()
+            .trim()
+            .toLowerCase() === "yes",
+      };
+
+      // Merge with assets data if available
+      const finalFormData = {
+        ...currentValues,
+        emailId: assetsData?.emailId || "",
+        emailPassword: assetsData?.emailPassword || "",
+        laptopImageUrl: assetsData?.laptopImageUrl || "",
+        mobileImageUrl: assetsData?.mobileImageUrl || "",
+        vehicleImageUrl: assetsData?.vehicleImageUrl || "",
+        otherImageUrl: assetsData?.otherImageUrl || "",
+        manualImageUrl: assetsData?.manualImageUrl || "",
+        laptopImage: null,
+        mobileImage: null,
+        vehicleImage: null,
+        otherImage: null,
+        manualImage: null,
+        assets: [],
+      };
+
+      setFormData(prev => ({
+        ...prev,
+        ...finalFormData
+      }));
+
+    } catch (error) {
+      console.error("Error fetching current values:", error);
+      // Keep the default reset values if there's an error
+      toast.error("Failed to load current values");
+    } finally {
+      // setLoading(false);
     }
+  };
 
-    const fullDataResult = await fullDataResponse.json();
-    const allData = fullDataResult.data || fullDataResult;
-
-    // Look for header row with "SKA-Joining ID" instead of "Employee ID"
-    let headerRowIndex = allData.findIndex((row) =>
-      row.some((cell) =>
-        cell?.toString().trim().toLowerCase().includes("ska-joining id")
-      )
-    );
-    if (headerRowIndex === -1) headerRowIndex = 5;
-
-    const headers = allData[headerRowIndex].map((h) => h?.toString().trim());
-
-    // Use "SKA-Joining ID" instead of "Employee ID"
-    const employeeIdIndex = headers.findIndex(
-      (h) => h?.toLowerCase() === "ska-joining id"
-    );
-    if (employeeIdIndex === -1) {
-      throw new Error("Could not find 'SKA-Joining ID' column");
-    }
-
-    const rowIndex = allData.findIndex(
-      (row, idx) =>
-        idx > headerRowIndex &&
-        row[employeeIdIndex]?.toString().trim() ===
-          item.joiningNo?.toString().trim()
-    );
-
-    if (rowIndex === -1)
-      throw new Error(`Employee ${item.joiningNo} not found`);
-
-    // Updated column indices
-    const actualColumnIndex = 27; // Column AB (0-based index: 27)
-    const startColumnIndex = 29; // Column AD (0-based index: 29)
-
-    const currentValues = {
-      checkSalarySlipResume:
-        allData[rowIndex][startColumnIndex] // Column AD
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      offerLetterReceived:
-        allData[rowIndex][startColumnIndex + 1] // Column AE
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      welcomeMeeting:
-        allData[rowIndex][startColumnIndex + 2] // Column AF
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      biometricAccess:
-        allData[rowIndex][startColumnIndex + 3] // Column AG
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      officialEmailId:
-        allData[rowIndex][startColumnIndex + 4] // Column AH
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      assignAssets:
-        allData[rowIndex][startColumnIndex + 5] // Column AI
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      pfEsic:
-        allData[rowIndex][startColumnIndex + 6] // Column AJ
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-      companyDirectory:
-        allData[rowIndex][startColumnIndex + 7] // Column AK
-          ?.toString()
-          .trim()
-          .toLowerCase() === "yes",
-    };
-
-    setFormData(currentValues);
-  } catch (error) {
-    console.error("Error fetching current values:", error);
-    // Keep the default reset values if there's an error
-    toast.error("Failed to load current values");
-  } finally {
-    setLoading(false);
-  }
-};
-
-  const handleCheckboxChange = (name) => {
+    const handleCheckboxChange = (name) => {
     setFormData((prev) => ({
       ...prev,
       [name]: !prev[name],
     }));
   };
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleImageUpload = (e, fieldName) => {
+    const file = e.target.files[0];
+    if (file) {
+      setFormData((prev) => ({
+        ...prev,
+        [fieldName]: file,
+      }));
+    }
+  };
+
+  // Save assets data to Assets sheet
+  const saveAssetsData = async (employeeId, employeeName, assetsData) => {
+    try {
+      const now = new Date();
+      const timestamp = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      
+      const rowData = [
+        timestamp,
+        employeeId,
+        employeeName,
+        assetsData.emailId || "",
+        assetsData.emailPassword || "",
+        assetsData.laptopImageUrl || "",
+        assetsData.mobileImageUrl || "",
+        assetsData.vehicleImageUrl || "",
+        assetsData.otherImageUrl || "",
+        assetsData.manualImageUrl || ""
+      ];
+
+      // First, check if record exists
+      const existingData = await fetchAssetsData(employeeId);
+      
+      if (existingData) {
+        // Update existing record - find the row and update it
+        const fetchResponse = await fetch(
+          "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Assets&action=fetch"
+        );
+        const result = await fetchResponse.json();
+        const data = result.data || result;
+        
+        const rowIndex = data.findIndex((row, index) => {
+          if (index === 0) return false; // Skip header
+          return row[1]?.toString().trim() === employeeId?.toString().trim();
+        });
+
+        if (rowIndex !== -1) {
+          // Update existing row
+          const response = await fetch(
+            "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                sheetName: "Assets",
+                action: "update",
+                rowIndex: (rowIndex + 1).toString(),
+                rowData: JSON.stringify(rowData),
+              }).toString(),
+            }
+          );
+          return await response.json();
+        }
+      }
+      
+      // Insert new record
+      const response = await fetch(
+        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            sheetName: "Assets",
+            action: "insert",
+            rowData: JSON.stringify(rowData),
+          }).toString(),
+        }
+      );
+
+      return await response.json();
+    } catch (error) {
+      throw new Error(`Failed to save assets data: ${error.message}`);
+    }
+  };
+
+
 const handleSubmit = async (e) => {
   e.preventDefault();
-  setLoading(true);
+  // setLoading(true);
   setSubmitting(true);
 
   if (!selectedItem.joiningNo || !selectedItem.candidateName) {
@@ -273,6 +523,83 @@ const handleSubmit = async (e) => {
   }
 
   try {
+    // Upload new images first
+    const uploadedUrls = {
+      laptopImageUrl: formData.laptopImageUrl,
+      mobileImageUrl: formData.mobileImageUrl,
+      vehicleImageUrl: formData.vehicleImageUrl,
+      otherImageUrl: formData.otherImageUrl,
+      manualImageUrl: formData.manualImageUrl,
+    };
+
+    // Upload laptop image if new file selected
+    if (formData.laptopImage) {
+      try {
+        uploadedUrls.laptopImageUrl = await uploadImageToDrive(
+          formData.laptopImage,
+          `${selectedItem.joiningNo}_laptop_${Date.now()}.${formData.laptopImage.name.split('.').pop()}`
+        );
+      } catch (error) {
+        toast.error(`Failed to upload laptop image: ${error.message}`);
+      }
+    }
+
+    // Upload mobile image if new file selected
+    if (formData.mobileImage) {
+      try {
+        uploadedUrls.mobileImageUrl = await uploadImageToDrive(
+          formData.mobileImage,
+          `${selectedItem.joiningNo}_mobile_${Date.now()}.${formData.mobileImage.name.split('.').pop()}`
+        );
+      } catch (error) {
+        toast.error(`Failed to upload mobile image: ${error.message}`);
+      }
+    }
+
+    // Upload vehicle image if new file selected
+    if (formData.vehicleImage) {
+      try {
+        uploadedUrls.vehicleImageUrl = await uploadImageToDrive(
+          formData.vehicleImage,
+          `${selectedItem.joiningNo}_vehicle_${Date.now()}.${formData.vehicleImage.name.split('.').pop()}`
+        );
+      } catch (error) {
+        toast.error(`Failed to upload vehicle image: ${error.message}`);
+      }
+    }
+
+    // Upload other image if new file selected
+    if (formData.otherImage) {
+      try {
+        uploadedUrls.otherImageUrl = await uploadImageToDrive(
+          formData.otherImage,
+          `${selectedItem.joiningNo}_other_${Date.now()}.${formData.otherImage.name.split('.').pop()}`
+        );
+      } catch (error) {
+        toast.error(`Failed to upload other image: ${error.message}`);
+      }
+    }
+
+    // Upload manual image if new file selected
+    if (formData.manualImage) {
+      try {
+        uploadedUrls.manualImageUrl = await uploadImageToDrive(
+          formData.manualImage,
+          `${selectedItem.joiningNo}_manual_${Date.now()}.${formData.manualImage.name.split('.').pop()}`
+        );
+      } catch (error) {
+        toast.error(`Failed to upload manual image: ${error.message}`);
+      }
+    }
+
+    // Save assets data
+    await saveAssetsData(selectedItem.joiningNo, selectedItem.candidateName, {
+      emailId: formData.emailId,
+      emailPassword: formData.emailPassword,
+      ...uploadedUrls
+    });
+
+    // Continue with existing logic for updating JOINING sheet
     const fullDataResponse = await fetch(
       "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch"
     );
@@ -390,10 +717,10 @@ const handleSubmit = async (e) => {
     }
 
     if (allFieldsYes) {
-      toast.success("All conditions met! Actual date updated successfully.");
+      toast.success("All conditions met! Data saved and actual date updated successfully.");
     } else {
       toast.success(
-        "Conditions updated successfully. Actual date will be updated when all conditions are met."
+        "Data saved successfully. Actual date will be updated when all conditions are met."
       );
     }
 
@@ -403,7 +730,7 @@ const handleSubmit = async (e) => {
     console.error("Update error:", error);
     toast.error(`Update failed: ${error.message}`);
   } finally {
-    setLoading(false);
+    // setLoading(false);
     setSubmitting(false);
   }
 };
@@ -436,10 +763,10 @@ const formatDOB = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
-  const filteredPendingData = pendingData.filter((item) => {
+  const filteredPendingData = afterJoining.filter((item) => {
     const matchesSearch =
-      item.candidateName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.joiningNo?.toLowerCase().includes(searchTerm.toLowerCase());
+      item.name_as_per_aadhar?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.joining_no?.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
 
@@ -532,7 +859,7 @@ const formatDOB = (dateString) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white">
-                  {tableLoading ? (
+                  {loading ? (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center">
                         <div className="flex justify-center flex-col items-center">
@@ -567,22 +894,22 @@ const formatDOB = (dateString) => {
                           </button>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.joiningNo}
+                          {item.joining_no}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.candidateName}
+                          {item.name_as_per_aadhar}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.fatherName}
+                          {item.father_name}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDOB(item.dateOfJoining)}
+                          {formatDOB(item.date_of_joining)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {item.designation}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.salary}
+                          {item.department}
                         </td>
                       </tr>
                     ))
@@ -644,16 +971,16 @@ const formatDOB = (dateString) => {
                     filteredHistoryData.map((item, index) => (
                       <tr key={index} className="hover:bg-white hover: ">
                         <td className="px-6 py-4 whitespace-nowrap text-sm  text-gray-500">
-                          {item.joiningNo}
+                          {item.joining_no}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm  text-gray-500">
-                          {item.candidateName}
+                          {item.name_as_per_aadhar}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm  text-gray-500">
                           {item.designation}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDOB(item.dateOfJoining)}
+                          {formatDOB(item.date_of_joining)}
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm  text-gray-500">
@@ -679,47 +1006,47 @@ const formatDOB = (dateString) => {
       </div>
 
       {showModal && selectedItem && (
-        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 ">
-          <div className="bg-white  rounded-lg shadow-lg w-full max-w-2xl">
-            <div className="flex justify-between items-center p-6 border-b  ">
-              <h3 className="text-lg font-medium  text-gray-500">
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl my-8">
+            <div className="flex justify-between items-center p-6 border-b">
+              <h3 className="text-lg font-medium text-gray-500">
                 After Joining Work Checklist
               </h3>
               <button
                 onClick={() => setShowModal(false)}
-                className=" text-gray-500  "
+                className="text-gray-500"
               >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium  text-gray-500 mb-1">
+                  <label className="block text-sm font-medium text-gray-500 mb-1">
                     Employee ID
                   </label>
                   <input
                     type="text"
-                    value={selectedItem.joiningNo}
+                    value={selectedItem.joining_no}
                     disabled
-                    className="w-full border border-gray-300   rounded-md px-3 py-2 bg-white    text-gray-500"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white text-gray-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium  text-gray-500 mb-1">
+                  <label className="block text-sm font-medium text-gray-500 mb-1">
                     Name
                   </label>
                   <input
                     type="text"
-                    value={selectedItem.candidateName}
+                    value={selectedItem.name_as_per_aadhar}
                     disabled
-                    className="w-full border border-gray-300   rounded-md px-3 py-2 bg-white    text-gray-500"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white text-gray-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-3">
-                <h4 className="text-md font-medium  text-gray-500">
+                <h4 className="text-md font-medium text-gray-500">
                   Checklist Items
                 </h4>
 
@@ -734,10 +1061,6 @@ const formatDOB = (dateString) => {
                   },
                   { key: "welcomeMeeting", label: "Welcome Meeting" },
                   { key: "biometricAccess", label: "Biometric Access" },
-                  { key: "officialEmailId", label: "Official Email ID" },
-                  { key: "assignAssets", label: "Assign Assets" },
-                  { key: "pfEsic", label: "PF / ESIC" },
-                  { key: "companyDirectory", label: "Company Directory" },
                 ].map((item) => (
                   <div key={item.key} className="flex items-center">
                     <input
@@ -745,23 +1068,244 @@ const formatDOB = (dateString) => {
                       id={item.key}
                       checked={formData[item.key]}
                       onChange={() => handleCheckboxChange(item.key)}
-                      className="h-4 w-4  text-gray-500  focus:ring-blue-500 border-gray-300   rounded bg-white"
+                      className="h-4 w-4 text-gray-500 focus:ring-blue-500 border-gray-300 rounded bg-white"
                     />
                     <label
                       htmlFor={item.key}
-                      className="ml-2 text-sm  text-gray-500"
+                      className="ml-2 text-sm text-gray-500"
                     >
                       {item.label}
                     </label>
                   </div>
                 ))}
+
+                {/* Official Email ID Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="officialEmailId"
+                      checked={formData.officialEmailId}
+                      onChange={() => handleCheckboxChange("officialEmailId")}
+                      className="h-4 w-4 text-gray-500 focus:ring-blue-500 border-gray-300 rounded bg-white"
+                    />
+                    <label
+                      htmlFor="officialEmailId"
+                      className="ml-2 text-sm text-gray-500"
+                    >
+                      Official Email ID
+                    </label>
+                  </div>
+                  
+                  {formData.officialEmailId && (
+                    <div className="mt-2 ml-6 grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-gray-50 rounded-md">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          Email ID
+                        </label>
+                        <input
+                          type="text"
+                          name="emailId"
+                          value={formData.emailId}
+                          onChange={handleInputChange}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          placeholder="Enter email ID"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          Password
+                        </label>
+                        <input
+                          type="password"
+                          name="emailPassword"
+                          value={formData.emailPassword}
+                          onChange={handleInputChange}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          placeholder="Enter password"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Assign Assets Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="assignAssets"
+                      checked={formData.assignAssets}
+                      onChange={() => handleCheckboxChange("assignAssets")}
+                      className="h-4 w-4 text-gray-500 focus:ring-blue-500 border-gray-300 rounded bg-white"
+                    />
+                    <label
+                      htmlFor="assignAssets"
+                      className="ml-2 text-sm text-gray-500"
+                    >
+                      Assign Assets
+                    </label>
+                  </div>
+                  
+                  {formData.assignAssets && (
+                    <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-gray-50 rounded-md">
+                      {[
+                        { id: "laptopImage", label: "Laptop", urlKey: "laptopImageUrl" },
+                        { id: "mobileImage", label: "Mobile", urlKey: "mobileImageUrl" },
+                        { id: "vehicleImage", label: "Vehicle", urlKey: "vehicleImageUrl" },
+                        { id: "otherImage", label: "Other", urlKey: "otherImageUrl" },
+                      ].map((asset) => (
+                        <div key={asset.id} className="space-y-2">
+                          <label className="block text-sm font-medium text-gray-500">
+                            {asset.label}
+                          </label>
+                          <div className="space-y-2">
+                            <div className="flex items-center">
+                              <input
+                                type="file"
+                                id={asset.id}
+                                accept="image/*"
+                                onChange={(e) => handleImageUpload(e, asset.id)}
+                                className="hidden"
+                              />
+                              <label
+                                htmlFor={asset.id}
+                                className="cursor-pointer bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 flex items-center"
+                              >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                {formData[asset.id] ? 'Change' : (formData[asset.urlKey] ? 'Replace' : 'Upload')}
+                              </label>
+                            </div>
+                            {/* Show existing image if available */}
+                            {formData[asset.urlKey] && !formData[asset.id] && (
+                              <div className="mt-1">
+                                <img 
+                                  src={formData[asset.urlKey]} 
+                                  alt={`Existing ${asset.label}`} 
+                                  className="h-16 w-16 object-cover rounded border"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                  }}
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Current {asset.label} image</p>
+                              </div>
+                            )}
+                            {/* Show new selected image preview */}
+                            {formData[asset.id] && (
+                              <div className="mt-1">
+                                <img 
+                                  src={URL.createObjectURL(formData[asset.id])} 
+                                  alt={`New ${asset.label}`} 
+                                  className="h-16 w-16 object-cover rounded border" 
+                                />
+                                <p className="text-xs text-green-600 mt-1">New {asset.label} image selected</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="pfEsic"
+                    checked={formData.pfEsic}
+                    onChange={() => handleCheckboxChange("pfEsic")}
+                    className="h-4 w-4 text-gray-500 focus:ring-blue-500 border-gray-300 rounded bg-white"
+                  />
+                  <label
+                    htmlFor="pfEsic"
+                    className="ml-2 text-sm text-gray-500"
+                  >
+                    PF / ESIC
+                  </label>
+                </div>
+
+                {/* Company Directory Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="companyDirectory"
+                      checked={formData.companyDirectory}
+                      onChange={() => handleCheckboxChange("companyDirectory")}
+                      className="h-4 w-4 text-gray-500 focus:ring-blue-500 border-gray-300 rounded bg-white"
+                    />
+                    <label
+                      htmlFor="companyDirectory"
+                      className="ml-2 text-sm text-gray-500"
+                    >
+                      Company Directory
+                    </label>
+                  </div>
+                  
+                  {formData.companyDirectory && (
+                    <div className="mt-2 ml-6 p-3 bg-gray-50 rounded-md">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-500">
+                          Manual
+                        </label>
+                        <div className="space-y-2">
+                          <div className="flex items-center">
+                            <input
+                              type="file"
+                              id="manualImage"
+                              accept="image/*"
+                              onChange={(e) => handleImageUpload(e, "manualImage")}
+                              className="hidden"
+                            />
+                            <label
+                              htmlFor="manualImage"
+                              className="cursor-pointer bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 flex items-center"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                              </svg>
+                              {formData.manualImage ? 'Change Manual' : (formData.manualImageUrl ? 'Replace Manual' : 'Upload Manual')}
+                            </label>
+                          </div>
+                          {/* Show existing manual image if available */}
+                          {formData.manualImageUrl && !formData.manualImage && (
+                            <div className="mt-2">
+                              <img 
+                                src={formData.manualImageUrl} 
+                                alt="Existing Manual" 
+                                className="h-32 w-full object-contain rounded border"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Current manual image</p>
+                            </div>
+                          )}
+                          {/* Show new selected manual image preview */}
+                          {formData.manualImage && (
+                            <div className="mt-2">
+                              <img 
+                                src={URL.createObjectURL(formData.manualImage)} 
+                                alt="New Manual" 
+                                className="h-32 w-full object-contain rounded border" 
+                              />
+                              <p className="text-xs text-green-600 mt-1">New manual image selected</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end space-x-2 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-gray-300   rounded-md  text-gray-500 hover:bg-white  "
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-500 hover:bg-gray-50"
                 >
                   Cancel
                 </button>

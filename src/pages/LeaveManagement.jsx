@@ -291,22 +291,15 @@ const handleLeaveAction = async (action) => {
     const fullDataResult = await fullDataResponse.json();
     const allData = fullDataResult.data || fullDataResult;
 
-    const headerRowIndex = 0;
-    const headers = allData[headerRowIndex].map(h => h?.toString().trim().toLowerCase());
-
-    const timestampIndex = 0;
-    const employeeIdIndex = 2;
-    const startDateIndex = 4;
-    const endDateIndex = 5;
-    const statusIndex = 7;
-
+    // Find the row index by matching Column B (serial number) and Column C (employee ID)
     const rowIndex = allData.findIndex((row, idx) => 
-      idx > headerRowIndex &&
-      row[employeeIdIndex]?.toString().trim() === selectedRow.employeeId?.toString().trim()
+      idx > 0 && // Skip header row
+      row[1]?.toString().trim() === selectedRow.serialNo?.toString().trim() &&
+      row[2]?.toString().trim() === selectedRow.employeeId?.toString().trim()
     );
     
     if (rowIndex === -1) {
-      throw new Error(`Employee ${selectedRow.employeeId} not found`);
+      throw new Error(`Leave request not found for employee ${selectedRow.employeeId}`);
     }
 
     let currentRow = [...allData[rowIndex]];
@@ -317,25 +310,25 @@ const handleLeaveAction = async (action) => {
     const year = today.getFullYear();
     const formattedDate = `${day}/${month}/${year}`;
     
-    // Update dates if they were changed
+    // Update dates if they were changed (Column E and F)
     if (editableDates.from && editableDates.from !== selectedRow.startDate) {
       const [year, month, day] = editableDates.from.split('-');
-      currentRow[startDateIndex] = `${day}/${month}/${year}`;
+      currentRow[4] = `${day}/${month}/${year}`;
     }
 
     if (editableDates.to && editableDates.to !== selectedRow.endDate) {
       const [year, month, day] = editableDates.to.split('-');
-      currentRow[endDateIndex] = `${day}/${month}/${year}`;
+      currentRow[5] = `${day}/${month}/${year}`;
     }
     
-    // Only update necessary columns - preserve Column B (serial number)
-    currentRow[timestampIndex] = formattedDate;
-    currentRow[statusIndex] = action === 'accept' ? 'approved' : 'rejected';
+    // Update timestamp (Column A) and status (Column H, index 7)
+    currentRow[0] = formattedDate;
+    currentRow[7] = action === 'accept' ? 'approved' : 'rejected';
 
     const payload = {
       sheetName: "Leave Management",
       action: "update",
-      rowIndex: rowIndex + 1,
+      rowIndex: rowIndex + 1, // Add 1 because Google Sheets rows are 1-indexed
       rowData: JSON.stringify(currentRow)
     };
 

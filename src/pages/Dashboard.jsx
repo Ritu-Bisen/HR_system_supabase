@@ -32,6 +32,7 @@ const Dashboard = () => {
   const [leaveThisMonth, setLeaveThisMonth] = useState(0);
   const [monthlyHiringData, setMonthlyHiringData] = useState([]);
   const [designationData, setDesignationData] = useState([]);
+  const [postRequiredData, setPostRequiredData] = useState([]);
   
   // Mock data for other charts
   const employeeStatusData = [
@@ -47,6 +48,55 @@ const Dashboard = () => {
     { month: 'May', productivity: 94, satisfaction: 90 },
     { month: 'Jun', productivity: 96, satisfaction: 92 }
   ];
+
+  const fetchPostRequiredData = async () => {
+  try {
+    const response = await fetch(
+      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=INDENT&action=fetch'
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to fetch data from INDENT sheet');
+    }
+
+    const rawData = result.data || result;
+    if (!Array.isArray(rawData)) {
+      throw new Error('Expected array data not received');
+    }
+
+    const headers = rawData[5]; // Row 6 headers
+    const dataRows = rawData.slice(6); // Row 7 onwards
+
+    // Find column indexes
+    const postNameIndex = 2; // Column C
+    const numberOfPostsIndex = 5; // Column F
+    const statusIndex = 8; // Column I
+
+    // Filter rows with "Need More" in status column (index 8)
+    const needMoreData = dataRows.filter(row => 
+      row[statusIndex]?.toString().trim().toLowerCase() === "need more"
+    );
+
+    // Prepare data for the chart
+    const postData = needMoreData.map(row => ({
+      postName: row[postNameIndex]?.toString().trim() || 'Unnamed Post',
+      numberOfPosts: parseInt(row[numberOfPostsIndex]) || 0
+    }));
+
+    console.log("✅ Post Required Data:", postData);
+
+    setPostRequiredData(postData);
+
+  } catch (error) {
+    console.error("Error fetching post required data:", error);
+    setPostRequiredData([]);
+  }
+};
 
   const parseSheetDate = (dateStr) => {
     if (!dateStr) return null;
@@ -68,6 +118,8 @@ const Dashboard = () => {
     
     return null;
   };
+
+  
 
   const fetchJoiningCount = async () => {
     try {
@@ -294,11 +346,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const [joiningResult, leavingResult] = await Promise.all([
-          fetchJoiningCount(),
-          fetchLeaveCount()
-        ]);
+    try {
+      const [joiningResult, leavingResult] = await Promise.all([
+        fetchJoiningCount(),
+        fetchLeaveCount(),
+        fetchPostRequiredData() // Add this line
+      ]);
         
         // Calculate total employees (JOINING + LEAVING)
         setTotalEmployee(joiningResult.total + leavingResult.total);
@@ -402,31 +455,29 @@ const Dashboard = () => {
         </div>
 
         <div className="bg-white rounded-xl shadow-lg border p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center">
-            <TrendingUp size={20} className="mr-2" />
-            Monthly Hiring vs Attrition
-          </h2>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyHiringData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" />
-                <XAxis dataKey="month" stroke="#374151" />
-                <YAxis stroke="#374151" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    color: '#374151'
-                  }} 
-                />
-                <Legend wrapperStyle={{ color: '#374151' }} />
-                <Bar dataKey="hired" name="Hired" fill="#10B981" />
-                <Bar dataKey="left" name="Left" fill="#EF4444" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+  <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center">
+    <TrendingUp size={20} className="mr-2" />
+    Posts Requiring More Candidates
+  </h2>
+  <div className="h-80">
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={postRequiredData}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" />
+        <XAxis dataKey="postName" stroke="#374151" />
+        <YAxis stroke="#374151" />
+        <Tooltip 
+          contentStyle={{ 
+            backgroundColor: 'white', 
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            color: '#374151'
+          }} 
+        />
+        <Bar dataKey="numberOfPosts" name="Posts Required" fill="#3B82F6" />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+</div>
 
      
       </div>

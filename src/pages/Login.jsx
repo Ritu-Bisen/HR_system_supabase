@@ -3,55 +3,104 @@ import { useNavigate } from 'react-router-dom';
 import { Users, User, Lock, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../store/authStore';
+import { useDispatch, useSelector } from "react-redux";
+import { loginUser } from '../redux/Slice/loginSlice';
 
 const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=USER&action=fetch';
 
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-
-    const [submitting, setSubmitting] = useState(false);
-    const login = useAuthStore((state) => state.login);
+  const [submitting, setSubmitting] = useState(false);
+  const {userData} = useSelector((state) => state.login);
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-setSubmitting(true)
-    try {
-      const res = await fetch(SHEET_API_URL);
-      const json = await res.json();
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     setSubmitting(true);
 
-      if (!json.success) {
-        toast.error('Error fetching data');
-        return;
-      }
+//     try {
+//       // const res = await fetch(SHEET_API_URL);
+//       // const json = await res.json();
 
-      const rows = json.data;
-      const headers = rows[0];
-      const users = rows.slice(1).map(row => {
-        let obj = {};
-        headers.forEach((h, i) => obj[h] = row[i]);
-        return obj;
-      });
+//       // if (!json.success) {
+//       //   toast.error('Error fetching data');
+//        // setSubmitting(false);
+//       //   return;
+//       // }
 
-      const matchedUser = users.find(
-        (u) => u.Username === username && u.Password === password
-      );
-    if (matchedUser) {
-  toast.success('Login successful!');
-  localStorage.setItem('user', JSON.stringify(matchedUser));
-  setSubmitting(false);
-  navigate('/', { replace: true });  // Add replace: true to prevent going back to login
+//       // const rows = json.data;
+//       // const headers = rows[0];
+//       // const users = rows.slice(1).map(row => {
+//       //   let obj = {};
+//       //   headers.forEach((h, i) => obj[h] = row[i]);
+//       //   return obj;
+//       // });
+// dispatch(loginUser())
+//       // const matchedUser = users.find(
+//       //   (u) => u.Username === username && u.Password === password
+//       // );
+      
+//       if (matchedUser) {
+//         toast.success('Login successful!');
+//         localStorage.setItem('user', JSON.stringify(matchedUser));
+//         login(matchedUser); // Update auth store
+        
+//         const adminStatus = matchedUser.Admin ? matchedUser.Admin.trim().toLowerCase() : 'no';
+        
+//         if (adminStatus === "yes") {
+//           navigate("/", { replace: true });
+//         } else {
+//           navigate("/my-profile", { replace: true });
+//         }
+//       } else {
+//         toast.error('Invalid credentials');
+//       }
+//     } catch (err) {
+//       console.error(err);
+//       toast.error('Network error');
+//     } finally {
+//       setSubmitting(false);
+//     }
+//   };
+
+// Login.jsx
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setSubmitting(true);
+
+  try {
+    // Dispatch async thunk with credentials
+    const resultAction = await dispatch(loginUser({ username, password }));
+
+    if (loginUser.fulfilled.match(resultAction)) {
+      // ✅ Login success
+      const matchedUser = resultAction.payload; // Supabase user row
+
+      toast.success('Login successful!');
+      localStorage.setItem('user', JSON.stringify(matchedUser));
+      console.log(matchedUser);
+      
+    const adminStatus = matchedUser.Admin?.trim().toLowerCase() || 'no';
+if (adminStatus === "yes") {
+  navigate("/", { replace: true });
 } else {
-  toast.error('Invalid credentials');
-  setSubmitting(false);
+  navigate("/my-profile", { replace: true });
 }
 
-    } catch (err) {
-      console.error(err);
-      toast.error('Network error');
+    } else {
+      // ❌ Login failed
+      toast.error(resultAction.payload || "Invalid credentials");
     }
-  };
+  } catch (err) {
+    console.error(err);
+    toast.error('Unexpected error');
+  } finally {
+    setSubmitting(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

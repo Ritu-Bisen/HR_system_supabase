@@ -15,6 +15,7 @@ const LeaveRequest = () => {
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('all');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [employees, setEmployees] = useState([]);
   const [hodNames, setHodNames] = useState([]);
   const [formData, setFormData] = useState({
@@ -160,6 +161,10 @@ const LeaveRequest = () => {
     setSelectedMonth(e.target.value);
   };
 
+  const handleYearChange = (e) => {
+    setSelectedYear(e.target.value);
+  };
+
   const calculateDays = (startDateStr, endDateStr) => {
     if (!startDateStr || !endDateStr) return 0;
     
@@ -184,6 +189,49 @@ const LeaveRequest = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return diffDays;
   };
+
+  const calculateDaysInMonth = (startDateStr, endDateStr, month, year) => {
+  if (!startDateStr || !endDateStr || month === 'all') return 0;
+  
+  let startDate, endDate;
+  
+  // Handle different date formats
+  if (startDateStr.includes('/')) {
+    const [startDay, startMonth, startYear] = startDateStr.split('/').map(Number);
+    startDate = new Date(startYear, startMonth - 1, startDay);
+  } else {
+    startDate = new Date(startDateStr);
+  }
+  
+  if (endDateStr.includes('/')) {
+    const [endDay, endMonth, endYear] = endDateStr.split('/').map(Number);
+    endDate = new Date(endYear, endMonth - 1, endDay);
+  } else {
+    endDate = new Date(endDateStr);
+  }
+  
+  // Adjust start date if it's before the selected month
+  const selectedMonthStart = new Date(year, parseInt(month), 1);
+  const selectedMonthEnd = new Date(year, parseInt(month) + 1, 0);
+  
+  if (startDate < selectedMonthStart) {
+    startDate = selectedMonthStart;
+  }
+  
+  // Adjust end date if it's after the selected month
+  if (endDate > selectedMonthEnd) {
+    endDate = selectedMonthEnd;
+  }
+  
+  // If the adjusted dates are invalid, return 0
+  if (startDate > endDate) {
+    return 0;
+  }
+  
+  const diffTime = endDate - startDate;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  return diffDays;
+};
 
   const formatDOB = (dateString) => {
     if (!dateString) return '';
@@ -215,14 +263,14 @@ const LeaveRequest = () => {
     return null;
   };
 
-  // Check if a date falls within a specific month
-  const isDateInMonth = (dateStr, monthIndex) => {
+  // Check if a date falls within a specific month and year
+  const isDateInSelectedPeriod = (dateStr, monthIndex, year) => {
     if (!dateStr || monthIndex === 'all') return true;
     
     const date = parseDate(dateStr);
     if (!date) return false;
     
-    return date.getMonth() === parseInt(monthIndex);
+    return date.getMonth() === parseInt(monthIndex) && date.getFullYear() === parseInt(year);
   };
 
   const fetchLeaveData = async () => {
@@ -363,27 +411,42 @@ const LeaveRequest = () => {
     'Normal Leave',
   ];
 
-  const calculateLeaveCounts = () => {
-    // Filter for approved leaves for this specific employee
-    const approvedLeaves = leavesData.filter(leave => 
-      leave.status && leave.status.toLowerCase() === 'approved' && 
-      leave.employeeName === user.Name &&
-      (selectedMonth === 'all' || 
-       isDateInMonth(leave.startDate, selectedMonth) || 
-       isDateInMonth(leave.endDate, selectedMonth))
-    );
-    return {
-      'Casual Leave': approvedLeaves
-        .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'casual leave')
-        .reduce((sum, leave) => sum + (leave.days || 0), 0),
-      'Earned Leave': approvedLeaves
-        .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'earned leave')
-        .reduce((sum, leave) => sum + (leave.days || 0), 0),
-      'Normal Leave': approvedLeaves
-        .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'normal leave')
-        .reduce((sum, leave) => sum + (leave.days || 0), 0),
-    };
+  // Generate year options (current year and previous 5 years)
+  const getYearOptions = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    
+    for (let i = currentYear; i >= currentYear - 5; i--) {
+      years.push(i);
+    }
+    
+    return years;
   };
+
+  const yearOptions = getYearOptions();
+
+  // Calculate leave counts based on selected month and year
+  const calculateLeaveCounts = () => {
+  // Filter for approved leaves for this specific employee
+  const approvedLeaves = leavesData.filter(leave => 
+    leave.status && leave.status.toLowerCase() === 'approved' && 
+    leave.employeeName === user.Name &&
+    (selectedMonth === 'all' || 
+     isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) || 
+     isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear))
+  );
+    return {
+    'Casual Leave': approvedLeaves
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'casual leave')
+      .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
+    'Earned Leave': approvedLeaves
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'earned leave')
+      .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
+    'Normal Leave': approvedLeaves
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'normal leave')
+      .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
+  };
+};
 
   // Calculate leave balance based on approved leaves for the specific employee
   const calculateLeaveBalance = () => {
@@ -392,8 +455,8 @@ const LeaveRequest = () => {
       leave.status && leave.status.toLowerCase() === 'approved' && 
       leave.employeeName === user.Name &&
       (selectedMonth === 'all' || 
-       isDateInMonth(leave.startDate, selectedMonth) || 
-       isDateInMonth(leave.endDate, selectedMonth))
+       isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) || 
+       isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear))
     );
     
     return {
@@ -417,8 +480,8 @@ const LeaveRequest = () => {
         leave.status.toLowerCase() === 'approved' &&
         leave.employeeName === user.Name &&
         (selectedMonth === 'all' ||
-          isDateInMonth(leave.startDate, selectedMonth) ||
-          isDateInMonth(leave.endDate, selectedMonth))
+          isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) ||
+          isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear))
     );
 
     return {
@@ -466,47 +529,67 @@ const LeaveRequest = () => {
         </button>
       </div>
 
-      {/* Month Filter */}
+      {/* Month and Year Filter */}
       <div className="bg-white rounded-lg shadow border p-4">
-        <div className="flex items-center">
-          <Filter size={18} className="text-gray-500 mr-2" />
-          <label htmlFor="monthFilter" className="text-sm font-medium text-gray-700 mr-3">
-            Filter by Month:
-          </label>
-          <select
-            id="monthFilter"
-            value={selectedMonth}
-            onChange={handleMonthChange}
-            className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {monthOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center flex-wrap gap-4">
+          <div className="flex items-center">
+            <Filter size={18} className="text-gray-500 mr-2" />
+            <label htmlFor="monthFilter" className="text-sm font-medium text-gray-700 mr-3">
+              Filter by Month:
+            </label>
+            <select
+              id="monthFilter"
+              value={selectedMonth}
+              onChange={handleMonthChange}
+              className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {monthOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="flex items-center">
+            <label htmlFor="yearFilter" className="text-sm font-medium text-gray-700 mr-3">
+              Year:
+            </label>
+            <select
+              id="yearFilter"
+              value={selectedYear}
+              onChange={handleYearChange}
+              className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {yearOptions.map(year => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Leave Balance Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {Object.entries(approvedCounts).map(([leaveType, count]) => (
-          <div key={leaveType} className="bg-white rounded-xl shadow-lg border p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 font-medium">{leaveType}</p>
-                <h3 className="text-2xl font-bold text-gray-800">{count}</h3>
-                <p className="text-xs text-gray-500">
-                  Approved requests count
-                </p>
-              </div>
-              <div className="p-3 rounded-full bg-indigo-100">
-                <Calendar size={24} className="text-indigo-600" />
-              </div>
-            </div>
-          </div>
-        ))}
+  {Object.entries(calculateLeaveCounts()).map(([leaveType, days]) => (
+    <div key={leaveType} className="bg-white rounded-xl shadow-lg border p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-600 font-medium">{leaveType}</p>
+          <h3 className="text-2xl font-bold text-gray-800">{days}</h3>
+          <p className="text-xs text-gray-500">
+            {selectedMonth === 'all' ? 'Total approved days' : `Days in ${monthOptions.find(m => m.value === selectedMonth)?.label || ''}`}
+          </p>
+        </div>
+        <div className="p-3 rounded-full bg-indigo-100">
+          <Calendar size={24} className="text-indigo-600" />
+        </div>
       </div>
+    </div>
+  ))}
+</div>
 
       {/* Leave Requests Table */}
       <div className="bg-white rounded-lg shadow border overflow-hidden">
@@ -534,8 +617,8 @@ const LeaveRequest = () => {
                   {leavesData
                     .filter(leave => 
                       selectedMonth === 'all' || 
-                      isDateInMonth(leave.startDate, selectedMonth) || 
-                      isDateInMonth(leave.endDate, selectedMonth)
+                      isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) || 
+                      isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear)
                     )
                     .map((request) => (
                     <tr key={request.id} className="hover:bg-gray-50">
