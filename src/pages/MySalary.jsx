@@ -3,6 +3,7 @@ import { DollarSign, Download, Eye, Calendar, TrendingUp } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const MySalary = () => {
   // const { user } = useAuthStore();
@@ -16,9 +17,9 @@ const MySalary = () => {
 //  const salaryData = getFilteredData('salaryData', user);
  
 //  Filter salary by selected year
-  const filteredSalary = salaryData.filter(record => {
-    return record.year.includes(selectedYear.toString());
-  });
+
+
+
 
 const fetchSalaryData = async () => { 
   setLoading(true);
@@ -28,77 +29,57 @@ const fetchSalaryData = async () => {
   try {
     // Get user info from localStorage
     const user = JSON.parse(localStorage.getItem("user") || "{}");
-    const employeeId =localStorage.getItem("employeeId") 
-    const employeeName = user?.Name;
+    const employeeId = localStorage.getItem("employeeId");
+    const employeeName = user?.name;
 
     if (!employeeId || !employeeName) {
       throw new Error("User info missing in localStorage");
     }
 
-    const response = await fetch(
-      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Salary&action=fetch'
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to fetch salary data');
-    }
-    
-    const rawData = result.data || result;
-    console.log("Raw data from API:", rawData);
-    
-    if (!Array.isArray(rawData)) {
-      throw new Error('Expected array data not received');
-    }
+    // Fetch from Supabase table `salary`
+    const { data, error } = await supabase
+      .from("salary")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .eq("employee_name", employeeName)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false });
 
-    // Skip header row
-    const dataRows = rawData.length > 1 ? rawData.slice(1) : [];
+    if (error) throw error;
 
-    // Map rows to structured data
-   // Map rows to structured data - PROPERLY CONVERT STRINGS TO NUMBERS
-const processedData = dataRows
-  .map((row, index) => {
     // Helper function to safely convert to number
     const toNumber = (value) => {
-      if (typeof value === 'number') return value;
-      if (typeof value === 'string') {
-        // Remove commas and any non-numeric characters except decimal point
-        const cleaned = value.replace(/[^\d.]/g, '');
+      if (typeof value === "number") return value;
+      if (typeof value === "string") {
+        const cleaned = value.replace(/[^\d.]/g, "");
         return parseFloat(cleaned) || 0;
       }
       return 0;
     };
 
-    return {
-      id: index + 1,
-      timestamp: row[0] || '',
-      employeeId: row[1] || '',
-      employeeName: row[2] || '',
-      year: row[3] || '',
-      month: row[4] || '',
-      basicSalary: toNumber(row[5]),
-      allowances: toNumber(row[6]),
-      overtime: toNumber(row[7]),
-      deductions: toNumber(row[8]),
-      netSalary: toNumber(row[9]),
-      status: row[10] || '',
-      payDate: row[11] || '',
-    };
-  })
-  .filter(item => 
-    item.employeeId === employeeId && item.employeeName === employeeName
-  );
-    
-    console.log("Filtered salary data:", processedData);
+    // Map Supabase rows to your structure
+const processedData = (data || []).map((row, index) => ({
+  id: index + 1,
+  timestamp: row.timestamp || "",
+  employeeId: row.employee_id || "",
+  employeeName: row.employee_name || "",
+  year: row.year || "",
+  month: row.month || "",
+  basicSalary: toNumber(row.basic_salary),
+  allowances: toNumber(row.allowances || 0),
+  overtime: toNumber(row.overtime || 0),
+  deductions: toNumber(row.total_deductions || 0),
+  netSalary: toNumber(row.net_salary || row.basic_salary), // fallback
+  status: row.status || "",
+  payDate: row.pay_date || "",
+}));
+
+
+    console.log("Filtered salary data from Supabase:", processedData);
     setSalaryData(processedData);
 
   } catch (error) {
-    console.error('Error fetching salary data:', error);
+    console.error("Error fetching salary data:", error);
     setError(error.message);
     toast.error(`Failed to load salary data: ${error.message}`);
   } finally {
@@ -107,6 +88,9 @@ const processedData = dataRows
   }
 };
 
+  const filteredSalary = salaryData.filter(record => {
+    return record.year.includes(selectedYear.toString());
+  });
  useEffect(() => {
     fetchSalaryData();
   }, []);
@@ -251,7 +235,7 @@ const totalOvertime = filteredSalary.reduce((sum, record) => {
                     <td colSpan="7" className="px-6 py-12 text-center">
                       <p className="text-red-500">Error: {error}</p>
                       <button 
-                        onClick={fetchLeavingData}
+                        onClick={fetchSalaryData}
                         className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
                       >
                         Retry

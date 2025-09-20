@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Download } from 'lucide-react';
+import supabase from '../SupabaseClient';
 
 const Attendancedaily = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -10,71 +11,60 @@ const Attendancedaily = () => {
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchAttendanceData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
+const fetchAttendanceData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Report Daily&action=fetch'
-      );
+  try {
+    // Fetch directly from Supabase
+    const { data, error } = await supabase
+      .from("attendance_daily")
+      .select("*")
+      .order("year", { ascending: false })
+      .order("date", { ascending: false }); // optional: latest first
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Raw Report Daily API response:', result);
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from Report Daily sheet');
-      }
-
-      const rawData = result.data || result;
-
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
-
-      // Process data - assuming first row contains headers
-      const headers = rawData[0]; // First row as headers
-      const dataRows = rawData.length > 1 ? rawData.slice(1) : [];
-
-      const processedData = dataRows.map((row) => ({
-        year: row[0] || '', // Column A (index-0)
-        monthName: row[1] || '', // Column B (index-1)
-        date: row[2] || '', // Column C (index-2)
-        day: row[3] || '', // Column D (index-3)
-        companyName: row[4] || '', // Column E (index-4)
-        empIdCode: row[5] || '', // Column F (index-5)
-        name: row[6] || '', // Column G (index-6)
-        designation: row[7] || '', // Column H (index-7)
-        holiday: row[8] || '', // Column I (index-8)
-        workingDay: row[9] || '', // Column J (index-9)
-        nHoliday: row[10] || '', // Column K (index-10)
-        status: row[11] || '', // Column L (index-11)
-        inTime: row[12] || '', // Column M (index-12)
-        outTime: row[13] || '', // Column N (index-13)
-        workingHours: row[14] || '', // Column O (index-14)
-        lateMinutes: row[15] || '', // Column P (index-15)
-        earlyOut: row[16] || '', // Column Q (index-16)
-        overtimeHours: row[17] || '', // Column R (index-17)
-        punchMiss: row[18] || '', // Column S (index-18)
-        remarks: row[19] || '', // Column T (index-19)
-      }));
-
-      console.log('Processed attendance data:', processedData);
-      setAttendanceData(processedData);
-
-    } catch (error) {
-      console.error('Error fetching Report Daily data:', error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
+    if (error) {
+      throw error;
     }
-  };
+
+    console.log("Raw attendance_daily data:", data);
+
+    // Map into the same shape your component expects
+    const processedData = data.map((row) => ({
+      year: row.year || "",
+      monthName: row.month_name || "", // adjust to your actual column name
+      date: row.date || "",
+      day: row.day || "",
+      companyName: row.company_name || "",
+      empIdCode: row.employee_id_code || "",
+      name: row.name || "",
+      designation: row.designation || "",
+      holiday: row.holiday_yes_no || "",
+      workingDay: row.working_day_yes_no || "",
+      nHoliday: row.n_holiday || "",
+      status: row.status || "",
+      inTime: row.in_time || "",
+      outTime: row.out_time || "",
+      workingHours: row.working_hours || "",
+      lateMinutes: row.present_minutes || "",
+      earlyOut: row.early_out || "",
+      overtimeHours: row.overtime_hours || "",
+      punchMiss: row.punch_miss || "",
+      remarks: row.remarks || "",
+    }));
+
+    console.log("Processed attendance data:", processedData);
+    setAttendanceData(processedData);
+
+  } catch (error) {
+    console.error("Error fetching attendance_daily data:", error);
+    setError(error.message);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchAttendanceData();

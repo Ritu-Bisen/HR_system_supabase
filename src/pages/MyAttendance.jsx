@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Calendar, Clock, CheckCircle, XCircle } from 'lucide-react';
+import supabase from '../SupabaseClient';
 
 const MyAttendance = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -16,7 +17,7 @@ const MyAttendance = () => {
       const userData = localStorage.getItem('user');
       if (userData) {
         const parsedUser = JSON.parse(userData);
-        return parsedUser.username || parsedUser.Name || parsedUser.salesPersonName || '';
+        return parsedUser.username || parsedUser.name || parsedUser.salesPersonName || '';
       }
       return '';
     } catch (error) {
@@ -25,85 +26,29 @@ const MyAttendance = () => {
     }
   };
 
-  const formatDOB = (dateString) => {
-    if (!dateString) return '';
-    
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) {
-      return dateString; // Return as-is if not a valid date
-    }
-    
-    const day = date.getDate();
-    const month = date.getMonth();
-    const year = date.getFullYear();
-    
-    return `${day}/${month}/${year}`;
-  };
-
-  const fetchReportDailySheet = async () => {
+  const fetchAttendanceData = async () => {
     setLoading(true);
     setTableLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Report Daily&action=fetch'
-      );
+      // Fetch all rows from Supabase table "attendance_daily"
+      const { data, error } = await supabase
+        .from("attendance_daily")
+        .select("*")
+        .order("date", { ascending: false });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (error) throw error;
+
+      console.log("Raw attendance data:", data);
+
+      if (!Array.isArray(data)) {
+        throw new Error("Expected array data not received from Supabase");
       }
 
-      const result = await response.json();
-      console.log('Raw Report Daily API response:', result);
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from Report Daily sheet');
-      }
-
-      const rawData = result.data || result;
-
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
-
-      console.log('Raw data from sheet:', rawData);
-
-      // Find the header row (look for "Date" column)
-      let headerRowIndex = 0;
-      for (let i = 0; i < rawData.length; i++) {
-        if (rawData[i] && rawData[i].some(cell => cell && cell.toString().toLowerCase().includes('date'))) {
-          headerRowIndex = i;
-          break;
-        }
-      }
-
-      console.log('Header row index:', headerRowIndex);
-
-      // Get headers
-      const headers = rawData[headerRowIndex].map(h => h?.toString().trim() || '');
-      console.log('Headers:', headers);
-
-      // Get data rows (skip header row)
-      const dataRows = rawData.length > headerRowIndex + 1 ? rawData.slice(headerRowIndex + 1) : [];
-
-      // Map data using header names - use display values directly
-      const processedData = dataRows.map((row, index) => {
-        const obj = {};
-        headers.forEach((header, colIndex) => {
-          // Keep the exact value as it appears in the sheet
-          obj[header] = row[colIndex] !== undefined && row[colIndex] !== null ? row[colIndex].toString() : '';
-        });
-        return obj;
-      });
-
-      console.log('Processed Report Daily sheet:', processedData);
-
-      // Save into state
-      setAttendanceData(processedData);
-
+      setAttendanceData(data);
     } catch (error) {
-      console.error('Error fetching Report Daily sheet:', error);
+      console.error("Error fetching attendance data:", error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -117,11 +62,10 @@ const MyAttendance = () => {
     if (username && attendanceData.length > 0) {
       console.log('Filtering for username:', username);
       
-      // Filter data to only show records where the name in Column G matches the username
+      // Filter data to only show records where the name matches the username
       const filteredData = attendanceData.filter(record => {
-        // Check if the name in Column G matches the username
-        const nameInColumnG = record['Name'] || record['name'] || record['G'] || '';
-        return nameInColumnG.toLowerCase().includes(username.toLowerCase());
+        const name = record.name || '';
+        return name.toLowerCase().includes(username.toLowerCase());
       });
       
       setUserAttendanceData(filteredData);
@@ -130,12 +74,12 @@ const MyAttendance = () => {
   }, [attendanceData]);
 
   useEffect(() => {
-    fetchReportDailySheet();
+    fetchAttendanceData();
   }, []);
 
   // Filter attendance by selected month and year from user-specific data
   const filteredAttendance = userAttendanceData.filter(record => {
-    const dateValue = record.Date || record.date || record['C'] || '';
+    const dateValue = record.date || '';
     if (!dateValue) return false;
     
     try {
@@ -161,8 +105,8 @@ const MyAttendance = () => {
   });
 
   // Calculate statistics
- const totalDays = userAttendanceData.filter(record => {
-    const dateValue = record.Date || record.date || record['C'] || '';
+  const totalDays = userAttendanceData.filter(record => {
+    const dateValue = record.date || '';
     if (!dateValue) return false;
     
     try {
@@ -187,8 +131,8 @@ const MyAttendance = () => {
     }
   }).length;
 
-    const presentDays = userAttendanceData.filter(record => {
-    const dateValue = record.Date || record.date || record['C'] || '';
+  const presentDays = userAttendanceData.filter(record => {
+    const dateValue = record.date || '';
     if (!dateValue) return false;
     
     try {
@@ -206,8 +150,8 @@ const MyAttendance = () => {
       
       // Check if record is in selected month/year
       if (recordDate.getMonth() === selectedMonth && recordDate.getFullYear() === selectedYear) {
-        // Get status from Column L (index 11)
-        const status = record['Status'] || record['status'] || record['L'] || '';
+        // Get status from status column
+        const status = record.status || '';
         return status.toLowerCase().includes('present') || status.toLowerCase().includes('holiday');
       }
       return false;
@@ -217,8 +161,8 @@ const MyAttendance = () => {
     }
   }).length;
   
-    const absentDays = userAttendanceData.filter(record => {
-    const dateValue = record.Date || record.date || record['C'] || '';
+  const absentDays = userAttendanceData.filter(record => {
+    const dateValue = record.date || '';
     if (!dateValue) return false;
     
     try {
@@ -236,8 +180,8 @@ const MyAttendance = () => {
       
       // Check if record is in selected month/year
       if (recordDate.getMonth() === selectedMonth && recordDate.getFullYear() === selectedYear) {
-        // Get status from Column L (index 11)
-        const status = record['Status'] || record['status'] || record['L'] || '';
+        // Get status from status column
+        const status = record.status || '';
         return status.toLowerCase().includes('absent');
       }
       return false;
@@ -249,16 +193,33 @@ const MyAttendance = () => {
   
   // Calculate working hours based on time strings
   const totalWorkingHours = filteredAttendance.reduce((sum, record) => {
-    const checkIn = record['Check In'] || record['check in'] || record['M'] || '';
-    const checkOut = record['Check Out'] || record['check out'] || record['N'] || '';
+    const workingHours = record.working_hours || '';
     
-    if (checkIn && checkOut) {
+    if (workingHours) {
       try {
-        const inTime = parseTimeString(checkIn);
-        const outTime = parseTimeString(checkOut);
+        // Try to parse the working hours (assuming format like "8:30" or "8.5")
+        if (workingHours.includes(':')) {
+          const [hours, minutes] = workingHours.split(':').map(Number);
+          return sum + hours + (minutes / 60);
+        } else {
+          return sum + parseFloat(workingHours);
+        }
+      } catch (e) {
+        console.log('Could not parse working hours:', workingHours);
+      }
+    }
+    
+    // Fallback: calculate from in_time and out_time
+    const inTime = record.in_time || '';
+    const outTime = record.out_time || '';
+    
+    if (inTime && outTime) {
+      try {
+        const inTimeObj = parseTimeString(inTime);
+        const outTimeObj = parseTimeString(outTime);
         
-        if (inTime && outTime) {
-          let hours = (outTime - inTime) / (1000 * 60 * 60);
+        if (inTimeObj && outTimeObj) {
+          let hours = (outTimeObj - inTimeObj) / (1000 * 60 * 60);
           // Handle cases where out time might be next day (e.g., working past midnight)
           if (hours < 0) hours += 24;
           return sum + (hours > 0 ? hours : 0);
@@ -270,26 +231,42 @@ const MyAttendance = () => {
     return sum;
   }, 0);
   
-  // Calculate overtime (assuming working hours > 8 is overtime)
+  // Calculate overtime
   const totalOvertime = filteredAttendance.reduce((sum, record) => {
-    const checkIn = record['Check In'] || record['check in'] || record['M'] || '';
-    const checkOut = record['Check Out'] || record['check out'] || record['N'] || '';
+    const overtime = record.overtime_hours || '';
     
-    if (checkIn && checkOut) {
+    if (overtime) {
       try {
-        const inTime = parseTimeString(checkIn);
-        const outTime = parseTimeString(checkOut);
-        
-        if (inTime && outTime) {
-          let hours = (outTime - inTime) / (1000 * 60 * 60);
-          if (hours < 0) hours += 24;
-          return sum + Math.max(0, hours - 8);
+        // Try to parse the overtime hours (assuming format like "1:30" or "1.5")
+        if (overtime.includes(':')) {
+          const [hours, minutes] = overtime.split(':').map(Number);
+          return sum + hours + (minutes / 60);
+        } else {
+          return sum + parseFloat(overtime);
         }
       } catch (e) {
-        console.log('Could not calculate overtime from In/Out times');
+        console.log('Could not parse overtime hours:', overtime);
       }
     }
-    return sum;
+    
+    // Fallback: calculate from working hours (assuming working hours > 8 is overtime)
+    const workingHours = record.working_hours || '';
+    let hoursWorked = 0;
+    
+    if (workingHours) {
+      try {
+        if (workingHours.includes(':')) {
+          const [hours, minutes] = workingHours.split(':').map(Number);
+          hoursWorked = hours + (minutes / 60);
+        } else {
+          hoursWorked = parseFloat(workingHours);
+        }
+      } catch (e) {
+        console.log('Could not parse working hours for overtime calculation');
+      }
+    }
+    
+    return sum + Math.max(0, hoursWorked - 8);
   }, 0);
 
   // Helper function to parse time strings like "10:00:00 AM"
@@ -330,16 +307,15 @@ const MyAttendance = () => {
 
   const years = [2023, 2024, 2025];
 
-  // Determine status based on Check In time presence
   const getStatus = (record) => {
-    const checkIn = record['Check In'] || record['check in'] || record['M'] || '';
-    const status = record['Status'] || record['status'] || record['L'] || '';
+    const status = record.status || '';
+    const inTime = record.in_time || '';
     
     if (status && status !== '' && status !== '-') {
       return status;
     }
     
-    if (checkIn && checkIn !== '' && checkIn !== '-') {
+    if (inTime && inTime !== '' && inTime !== '-') {
       return 'Present';
     }
     return 'Absent';
@@ -468,57 +444,75 @@ const MyAttendance = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-  {filteredAttendance.map((record, index) => {
-    const dateValue = record['Date'] || '';
-    const checkIn = record['In Time'] || '';
-    const checkOut = record['Out Time'] || '';
-    const status = record['Status'] || (checkIn ? 'Present' : 'Absent');
-    const workingHoursValue = record['Working Hours'] || '';
-    const overtimeValue = record['Overtime Hours'] || '';
-    
-    let workingHours = 0;
-    let overtime = 0;
+                  {filteredAttendance.map((record, index) => {
+                    const dateValue = record.date || '';
+                    const checkIn = record.in_time || '';
+                    const checkOut = record.out_time || '';
+                    const status = getStatus(record);
+                    const workingHoursValue = record.working_hours || '';
+                    const overtimeValue = record.overtime_hours || '';
+                    
+                    let workingHours = 0;
+                    let overtime = 0;
 
-    if (workingHoursValue && !isNaN(parseFloat(workingHoursValue))) {
-      workingHours = parseFloat(workingHoursValue);
-    }
-    if (overtimeValue && !isNaN(parseFloat(overtimeValue))) {
-      overtime = parseFloat(overtimeValue);
-    } else {
-      overtime = Math.max(0, workingHours - 8);
-    }
+                    if (workingHoursValue) {
+                      try {
+                        if (workingHoursValue.includes(':')) {
+                          const [hours, minutes] = workingHoursValue.split(':').map(Number);
+                          workingHours = hours + (minutes / 60);
+                        } else {
+                          workingHours = parseFloat(workingHoursValue);
+                        }
+                      } catch (e) {
+                        console.log('Could not parse working hours');
+                      }
+                    }
+                    
+                    if (overtimeValue) {
+                      try {
+                        if (overtimeValue.includes(':')) {
+                          const [hours, minutes] = overtimeValue.split(':').map(Number);
+                          overtime = hours + (minutes / 60);
+                        } else {
+                          overtime = parseFloat(overtimeValue);
+                        }
+                      } catch (e) {
+                        console.log('Could not parse overtime hours');
+                      }
+                    } else {
+                      overtime = Math.max(0, workingHours - 8);
+                    }
 
-    return (
-      <tr key={index} className="hover:bg-gray-50">
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {dateValue || '-'}
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {checkIn || '-'}
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {checkOut || '-'}
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap">
-          <span className={`px-2 py-1 text-xs rounded-full ${
-            status.toLowerCase() === 'present'
-              ? 'bg-green-100 text-green-800'
-              : 'bg-red-100 text-red-800'
-          }`}>
-            {status}
-          </span>
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {workingHours || 0} hrs
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {overtime || 0} hrs
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
-
+                    return (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {dateValue || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {checkIn || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {checkOut || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            status.toLowerCase() === 'present' || status.toLowerCase() === 'holiday'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {workingHours.toFixed(1)} hrs
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {overtime.toFixed(1)} hrs
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
               {filteredAttendance.length === 0 && !loading && (
                 <div className="px-6 py-12 text-center">

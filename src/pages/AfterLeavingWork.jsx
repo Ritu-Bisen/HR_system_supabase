@@ -53,7 +53,7 @@ const fetchLeavingData = async () => {
       designation: item.designation || '',
       salary: item.salary || '', // if you have this column
       plannedDate: item.planned_date || '', // if you have this column
-      actual: item.actual || '', // if you have this column
+      actual: item.actual_date || '', // if you have this column
     }));
 
     // Filter pending and history tasks
@@ -82,102 +82,60 @@ const fetchLeavingData = async () => {
     fetchLeavingData();
   }, []);
 
-  const handleAfterLeavingClick = async (item) => {
-    setFormData({
-      resignationLetterReceived: false,
-      resignationAcceptance: false,
-      handoverAssetsIdVisitingCard: false,
-      cancellationEmailBiometric: false,
-      finalReleaseDate: '',
-      removeBenefitEnrollment: false
-    });
-    
-    setSelectedItem(item);
-    setShowModal(true);
-    setLoading(true);
 
-    try {
-      const fullDataResponse = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch'
-      );
-      
-      if (!fullDataResponse.ok) {
-        throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
+const handleAfterLeavingClick = async (item) => {
+  setFormData({
+    resignationLetterReceived: false,
+    resignationAcceptance: false,
+    handoverAssetsIdVisitingCard: false,
+    cancellationEmailBiometric: false,
+    finalReleaseDate: "",
+    removeBenefitEnrollment: false,
+  });
+
+  setSelectedItem(item);
+  setShowModal(true);
+  setLoading(true);
+
+  try {
+    // ✅ Fetch row for employee from Supabase
+    const { data, error } = await supabase
+      .from("leaving")
+      .select("*")
+      .eq("employee_id", item.employeeId)
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error(`Employee ${item.employeeId} not found in LEAVING table`);
+
+    // ✅ Format finalReleaseDate for input (YYYY-MM-DD)
+    let formattedDate = "";
+    if (data.final_release_date) {
+      const dateObj = new Date(data.final_release_date);
+      if (!isNaN(dateObj.getTime())) {
+        formattedDate = dateObj.toISOString().split("T")[0];
       }
-      
-      const fullDataResult = await fullDataResponse.json();
-      const allData = fullDataResult.data || fullDataResult;
-
-      let headerRowIndex = allData.findIndex(row =>
-        row.some(cell => cell?.toString().trim().toLowerCase().includes('employee id'))
-      );
-      if (headerRowIndex === -1) headerRowIndex = 4;
-
-      const headers = allData[headerRowIndex].map(h => h?.toString().trim());
-
-      // Find Employee ID column index
-      const employeeIdIndex = headers.findIndex(h => h?.toLowerCase() === "employee id");
-      if (employeeIdIndex === -1) {
-        throw new Error("Could not find 'Employee ID' column");
-      }
-
-      // Find the employee row index
-      const rowIndex = allData.findIndex((row, idx) =>
-        idx > headerRowIndex &&
-        row[employeeIdIndex]?.toString().trim() === item.employeeId?.toString().trim()
-      );
-      
-      if (rowIndex === -1) {
-        throw new Error(`Employee ${item.employeeId} not found in LEAVING sheet`);
-      }
-
-      // Get current values from the sheet
-      // Final Release Date is now at column T (index 19)
-      const finalReleaseDateValue = allData[rowIndex][19] || "";
-      
-      // Format the date for the input field (YYYY-MM-DD format)
-      let formattedDate = "";
-      if (finalReleaseDateValue) {
-        // Try to parse the date if it's in a different format
-        const dateParts = finalReleaseDateValue.toString().split('/');
-        if (dateParts.length === 3) {
-          // Assuming DD/MM/YYYY format
-          const day = dateParts[0].padStart(2, '0');
-          const month = dateParts[1].padStart(2, '0');
-          const year = dateParts[2];
-          formattedDate = `${year}-${month}-${day}`;
-        } else {
-          // Try to parse as a Date object if it's in a different format
-          const dateObj = new Date(finalReleaseDateValue);
-          if (!isNaN(dateObj.getTime())) {
-            formattedDate = dateObj.toISOString().split('T')[0];
-          }
-        }
-      }
-
-      const currentValues = {
-        resignationLetterReceived: 
-          allData[rowIndex][15]?.toString().trim().toLowerCase() === "yes",
-        resignationAcceptance: 
-          allData[rowIndex][16]?.toString().trim().toLowerCase() === "yes",
-        handoverAssetsIdVisitingCard: 
-          allData[rowIndex][17]?.toString().trim().toLowerCase() === "yes",
-        cancellationEmailBiometric: 
-          allData[rowIndex][18]?.toString().trim().toLowerCase() === "yes",
-        finalReleaseDate: formattedDate,
-        removeBenefitEnrollment: 
-          allData[rowIndex][20]?.toString().trim().toLowerCase() === "yes"
-      };
-
-      setFormData(currentValues);
-    } catch (error) {
-      console.error('Error fetching current values:', error);
-      // Keep the default reset values if there's an error
-      toast.error("Failed to load current values");
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // ✅ Map DB values → formData
+    const currentValues = {
+      resignationLetterReceived: data.resignation_letter_received === "Yes",
+      resignationAcceptance: data.resignation_acceptance === "Yes",
+      handoverAssetsIdVisitingCard: data.handover_of_assets_id_card_visiting_card === "Yes",
+      cancellationEmailBiometric: data.cancellation_of_email_id_and_biometric_access === "Yes",
+      finalReleaseDate: formattedDate,
+      removeBenefitEnrollment: data.remove_benefit_enrollment === "Yes",
+    };
+
+    setFormData(currentValues);
+  } catch (error) {
+    console.error("Error fetching current values:", error);
+    toast.error("Failed to load current values");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const handleCheckboxChange = (name) => {
     setFormData(prev => ({
@@ -194,175 +152,66 @@ const fetchLeavingData = async () => {
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setSubmitting(true);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setSubmitting(true);
 
-    if (!selectedItem.employeeId || !selectedItem.name) {
-      toast.error('Please fill all required fields');
-      setSubmitting(false);
-      return;
+  if (!selectedItem.employeeId || !selectedItem.name) {
+    toast.error("Please fill all required fields");
+    setSubmitting(false);
+    return;
+  }
+
+  try {
+    const formattedTimestamp =new Date().toISOString().split("T")[0]; // ✅ proper Supabase timestamp
+
+    // Check conditions
+    const allConditionsMet =
+      formData.resignationLetterReceived &&
+      formData.resignationAcceptance &&
+      formData.handoverAssetsIdVisitingCard &&
+      formData.cancellationEmailBiometric &&
+      formData.removeBenefitEnrollment &&
+      formData.finalReleaseDate;
+
+    // Build data object
+    const updateData = {
+      resignation_letter_received: formData.resignationLetterReceived ? "Yes" : "No",
+      resignation_acceptance: formData.resignationAcceptance ? "Yes" : "No",
+      handover_of_assets_id_card_visiting_card: formData.handoverAssetsIdVisitingCard ? "Yes" : "No",
+      cancellation_of_email_id_and_biometric_access: formData.cancellationEmailBiometric ? "Yes" : "No",
+      remove_benefit_enrollment: formData.removeBenefitEnrollment ? "Yes" : "No",
+      final_release_date: formData.finalReleaseDate || null,
+      actual_date: allConditionsMet ? formattedTimestamp : null,
+    };
+
+    // ✅ Update Supabase
+    const { data, error } = await supabase
+      .from("leaving")
+      .update(updateData)
+      .eq("employee_id", selectedItem.employeeId);
+
+    if (error) throw error;
+
+    console.log("Supabase update result:", data);
+
+    if (allConditionsMet) {
+      toast.success("All conditions met! Actual date updated successfully.");
+    } else {
+      toast.success("Conditions updated. Actual date will update when all conditions are met.");
     }
 
-    try {
-      // 1. First fetch the current data
-      const fullDataResponse = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch'
-      );
-      if (!fullDataResponse.ok) {
-        throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
-      }
+  } catch (error) {
+    console.error("Error updating Supabase:", error);
+    toast.error(`Update failed: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setSubmitting(false);
+  }
+};
 
-      const fullDataResult = await fullDataResponse.json();
-      const allData = fullDataResult.data || fullDataResult;
 
-      // Find header row in LEAVING sheet
-      let headerRowIndex = allData.findIndex(row =>
-        row.some(cell => cell?.toString().trim().toLowerCase().includes('employee id'))
-      );
-      if (headerRowIndex === -1) headerRowIndex = 4;
-
-      const headers = allData[headerRowIndex].map(h => h?.toString().trim());
-
-      // Find Employee ID column index
-      const employeeIdIndex = headers.findIndex(h => h?.toLowerCase() === "employee id");
-      if (employeeIdIndex === -1) {
-        throw new Error("Could not find 'Employee ID' column");
-      }
-
-      // Find the employee row index
-      const rowIndex = allData.findIndex((row, idx) =>
-        idx > headerRowIndex &&
-        row[employeeIdIndex]?.toString().trim() === selectedItem.employeeId?.toString().trim()
-      );
-      if (rowIndex === -1) throw new Error(`Employee ${selectedItem.employeeId} not found in LEAVING sheet`);
-
-      const now = new Date();
-      const formattedTimestamp = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()} `;
-      
-      // Check if all conditions are met
-      const allConditionsMet = 
-        formData.resignationLetterReceived &&
-        formData.resignationAcceptance &&
-        formData.handoverAssetsIdVisitingCard &&
-        formData.cancellationEmailBiometric &&
-        formData.removeBenefitEnrollment &&
-        formData.finalReleaseDate;
-
-      const updatePromises = [];
-
-      // Only update actual date if all conditions are met
-      if (allConditionsMet) {
-        updatePromises.push(
-          fetch(
-            "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                sheetName: "LEAVING",
-                action: "updateCell",
-                rowIndex: (rowIndex + 1).toString(),
-                columnIndex: "14", // Column N (Actual date)
-                value: formattedTimestamp,
-              }).toString(),
-            }
-          )
-        );
-      }
-
-      // Update checklist columns regardless of allConditionsMet
-      const fields = [
-        { value: formData.resignationLetterReceived ? "Yes" : "No", offset: 15 },
-        { value: formData.resignationAcceptance ? "Yes" : "No", offset: 16 },
-        { value: formData.handoverAssetsIdVisitingCard ? "Yes" : "No", offset: 17 },
-        { value: formData.cancellationEmailBiometric ? "Yes" : "No", offset: 18 },
-        { value: formData.removeBenefitEnrollment ? "Yes" : "No", offset: 20 }
-      ];
-
-      // Convert final release date to DD/MM/YYYY
-      let finalReleaseDateValue = "";
-      if (formData.finalReleaseDate) {
-        const dateParts = formData.finalReleaseDate.split('-');
-        if (dateParts.length === 3) {
-          finalReleaseDateValue = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
-        } else {
-          finalReleaseDateValue = formData.finalReleaseDate;
-        }
-      }
-
-      // Add final release date update (now at column T, index 19)
-      updatePromises.push(
-        fetch(
-          "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({
-              sheetName: "LEAVING",
-              action: "updateCell",
-              rowIndex: (rowIndex + 1).toString(),
-              columnIndex: "20", // Column T (Final Release Date) - index 19 + 1
-              value: finalReleaseDateValue,
-            }).toString(),
-          }
-        )
-      );
-
-      // Add all other field updates
-      fields.forEach((field) => {
-        updatePromises.push(
-          fetch(
-            "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                sheetName: "LEAVING",
-                action: "updateCell",
-                rowIndex: (rowIndex + 1).toString(),
-                columnIndex: (field.offset + 1).toString(),
-                value: field.value,
-              }).toString(),
-            }
-          )
-        );
-      });
-
-      const responses = await Promise.all(updatePromises);
-      const results = await Promise.all(responses.map((r) => r.json()));
-
-      const hasError = results.some((result) => !result.success);
-      if (hasError) {
-        console.error("Some cell updates failed:", results);
-        throw new Error("Some cell updates failed");
-      }
-
-      if (allConditionsMet) {
-        toast.success("All conditions met! Actual date updated successfully.");
-      } else {
-        toast.success(
-          "Conditions updated successfully. Actual date will be updated when all conditions are met."
-        );
-      }
-
-      setShowModal(false);
-      fetchLeavingData();
-    } catch (error) {
-      console.error('Update error:', error);
-      toast.error(`Update failed: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setSubmitting(false);
-    }
-  };
 
   const formatDOB = (dateString) => {
     if (!dateString) return '';

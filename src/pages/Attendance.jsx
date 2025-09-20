@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import supabase from '../SupabaseClient';
 
 
 const Attendance = () => {
@@ -14,81 +15,57 @@ const Attendance = () => {
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState({}); // Track individual download states
 
-  const fetchAttendanceData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Report&action=fetch'
-      );
+const fetchAttendanceData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+  try {
+    // Fetch directly from Supabase
+    const { data, error } = await supabase
+      .from("attendance_monthly")
+      .select("*")
+      .order("year", { ascending: false }) // optional, latest year first
+      .order("month", { ascending: false }); // optional, latest month first
 
-      const result = await response.json();
-      console.log('Raw REPORT API response:', result);
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from REPORT sheet');
-      }
-
-      const rawData = result.data || result;
-
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
-
-      // In your screenshot, headers looked around row 4–5 → adjust index if needed
-      const headers = rawData[3]; // row 4 in sheet (0-based index = 3)
-      const dataRows = rawData.length > 4 ? rawData.slice(4) : [];
-
-const getIndex = (headerName) => {
-    const index = headers.findIndex(
-      (h) => h && h.toString().trim().toLowerCase() === headerName.toLowerCase()
-    );
-    if (index === -1) {
-      console.warn(`Column "${headerName}" not found in sheet. Available headers:`, headers);
+    if (error) {
+      throw error;
     }
-    return index;
-  };
 
+    console.log("Fetched attendance data:", data);
 
-      const processedData = dataRows.map((row) => ({
-        year: row[getIndex('Year')] || '',
-        month: row[getIndex('Month')] || '',
-        empId: row[getIndex('Employee ID')] || '',
-        name: row[getIndex('Name')] || '',
-        designation: row[getIndex('Designation')] || '',
-        company: row[getIndex('Company Name')] || '',
-        punchDays: row[getIndex('Punch Days')] || '',
-        totalOnTime: row[getIndex('Total On Time (>=8)')] || '',
-        lateDays: row[getIndex('Late Days(4-8)')] || '',
-        lateNotAllowed: row[getIndex('Late Not Allowed')],
-        lateAllowed: row[getIndex('Late Allowed')] || '',
-        punchMiss: row[getIndex('Punch Miss')] || '',
-        holidays: row[getIndex('Sunday+National  Holiday Given')] || '',
-        absents: row[getIndex('Absent(<4)')] || '',
-        totalWorking: row[getIndex('Total Days')] || '',
-        mgmtAdjustment: row[getIndex('Mgmt Adjustment')] || '',
-        grandTotalDays: row[getIndex('Grand Total Days')] || '',
-      }));
+    // Map directly (if columns match DB names)
+    const processedData = data.map((row) => ({
+      year: row.year || "",
+      month: row.month || "",
+      empId: row.emp_id || row.employee_id || "",
+      name: row.name || "",
+      designation: row.designation || "",
+      // company: row.company_name || "",
+      punchDays: row.punch_days || "",
+      totalOnTime: row.total_days || "",
+      lateDays: row.late_days || "",
+      lateNotAllowed: row.late_not_allowed || "",
+      lateAllowed: row.late_allowed || "",
+      punchMiss: row.punch_miss || "",
+      holidays: row.holidays || "",
+      absents: row.absent || "",
+       totalWorking: row.total_days || "",
+      // mgmtAdjustment: row.mgmt_adjustment || "",
+      // grandTotalDays: row.grand_total_days || "",
+    }));
 
-      console.log('Processed attendance data:', processedData);
+    setAttendanceData(processedData);
 
-      // Example usage: set state
-      setAttendanceData(processedData);
-
-    } catch (error) {
-      console.error('Error fetching REPORT data:', error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error("Error fetching attendance data from Supabase:", error);
+    setError(error.message);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchAttendanceData();

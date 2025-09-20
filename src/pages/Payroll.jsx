@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Calendar, Filter, MoreVertical } from 'lucide-react';
+import supabase from '../SupabaseClient';
 
 const Payroll = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,56 +21,55 @@ const Payroll = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch data from Google Sheets using the provided AppScript URL
-        const response = await fetch(
-          "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Payroll&action=fetch"
-        );
-        const data = await response.json();
 
-        if (data && data.success && data.data) {
-          // Extract headers and data rows
-          const headers = data.data[0];
-          const rows = data.data.slice(1);
+useEffect(() => {
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch directly from Supabase
+      const { data, error } = await supabase
+        .from("payroll")
+        .select("*")
+        .order("year", { ascending: false })
+        .order("month", { ascending: false });
 
-          // Transform the data to match our structure
-          const transformedData = rows.map((row) => ({
-            serialNo: row[0] || "",
-            employeeCode: row[1] || "",
-            employeeName: row[2] || "",
-            designation: row[3] || "",
-            daysPresent: row[4] || 0,
-            totalActual: parseFloat(row[5]) || 0,
-            basic: parseFloat(row[6]) || 0,
-            conveyance: parseFloat(row[7]) || 0,
-            hra: parseFloat(row[8]) || 0,
-            medicalAllowance: parseFloat(row[9]) || 0,
-            specialAllowance: parseFloat(row[10]) || 0,
-            otherAllowances: parseFloat(row[11]) || 0,
-            loan: parseFloat(row[12]) || 0,
-            additionalSalary: parseFloat(row[13]) || 0,
-            toBePaidAfterPF: parseFloat(row[14]) || 0,
-            year: row[15] || "",
-            month: row[16] || "",
-          }));
-
-          setPayrollData(transformedData);
-        } else {
-          throw new Error(data.error || "Failed to fetch data");
-        }
-      } catch (error) {
-        setError(error.message);
-        showNotification(`Failed to load data: ${error.message}`, "error");
-      } finally {
-        setLoading(false);
+      if (error) {
+        throw error;
       }
-    };
 
-    fetchData();
-  }, []);
+      // Transform rows into your structure
+      const transformedData = data.map((row,index) => ({
+        serialNo: index+1 || "",
+        employeeCode: row.employee_code || "",
+        employeeName: row.employee_name || "",
+        designation: row.designation || "",
+        daysPresent: row.no_of_days_present || 0,
+        totalActual: parseFloat(row.total_actual) || 0,
+        basic: parseFloat(row.basic) || 0,
+        conveyance: parseFloat(row.conveyance) || 0,
+        hra: parseFloat(row.hra) || 0,
+        medicalAllowance: parseFloat(row.medical_allowance) || 0,
+        specialAllowance: parseFloat(row.special_allowance) || 0,
+        otherAllowances: parseFloat(row.other_allowances) || 0,
+        loan: parseFloat(row.loan) || 0,
+        additionalSalary: parseFloat(row.additional_salary) || 0,
+        toBePaidAfterPF: parseFloat(row.to_be_paid_after_pf) || 0,
+        year: row.year || "",
+        month: row.month || "",
+      }));
+
+      setPayrollData(transformedData);
+    } catch (error) {
+      setError(error.message);
+      showNotification(`Failed to load data: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchData();
+}, []);
+
 
   const handleFilterChange = (filterName, value) => {
     setFilters((prev) => ({

@@ -3,6 +3,7 @@ import { Plus, X, Calendar, Clock, CheckCircle, AlertCircle, Filter, Search } fr
 import useAuthStore from '../store/authStore';
 import useDataStore from '../store/dataStore';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const LeaveRequest = () => {
   const employeeId = localStorage.getItem("employeeId");
@@ -62,92 +63,76 @@ const LeaveRequest = () => {
     }
   };
 
-  // Fetch employee data including designation
-  const fetchEmployeeData = async () => {
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch employee data');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
 
-      // Data starts from row 7 (index 6)
-      // Column C (index 2) contains Employee Name
-      // Column B (index 1) contains Employee ID
-      // Column F (index 5) contains Designation
-      const employeeRow = rawData.slice(6).find(row => 
-        row[2]?.toString().trim().toLowerCase() === user.Name?.toString().trim().toLowerCase()
-      );
-      
-      if (employeeRow) {
-        const employeeId = employeeRow[1] || '';
-        const designation = employeeRow[5] || '';
-        
-        setFormData(prev => ({
-          ...prev,
-          employeeId: employeeId,
-          designation: designation
-        }));
-      }
-    } catch (error) {
-      console.error('Error fetching employee data:', error);
+const fetchEmployeeData = async () => {
+  try {
+    // Get logged-in user from localStorage
+    const userData = localStorage.getItem("user");
+    if (!userData) throw new Error("No user data found in localStorage");
+
+    const currentUser = JSON.parse(userData);
+    const userName = currentUser.name?.trim().toLowerCase();
+
+    // Query Supabase "joining" table for this employee
+    const { data, error } = await supabase
+      .from("joining")
+      .select("joining_no, name_as_per_aadhar, designation")
+      .ilike("name_as_per_aadhar", userName) // match by name
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+
+    if (!data) {
+      console.warn("No matching employee found in JOINING");
+      return;
     }
-  };
 
-  // Fetch employees from JOINING sheet
-  const fetchEmployees = async () => {
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch employee data');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
+    // ✅ Update form with correct employee details
+    setFormData((prev) => ({
+      ...prev,
+      employeeId: data.joining_no || "",
+      employeeName: data.name_as_per_aadhar || currentUser.Name || "",
+      designation: data.designation || "",
+    }));
+  } catch (error) {
+    console.error("Error fetching employee data:", error);
+    toast.error(`Failed to load employee data: ${error.message}`);
+  }
+};
 
-      // Data starts from row 7 (index 6)
-      // Column C is index 2 (Employee Name)
-      // Column B is index 1 (Employee ID)
-      // Column F is index 5 (Designation)
-      const employeeData = rawData.slice(6).map((row, index) => ({
-        id: row[1] || '', // Column B (Employee ID)
-        name: row[2] || '', // Column C (Employee Name)
-        designation: row[5] || '', // Column F (Designation)
-        rowIndex: index + 7 // Actual row number in sheet
-      })).filter(emp => emp.name && emp.id); // Filter out empty entries
 
-      setEmployees(employeeData);
-    } catch (error) {
-      console.error('Error fetching employee data:', error);
-      toast.error(`Failed to load employee data: ${error.message}`);
+
+const fetchEmployees = async () => {
+  try {
+    // Fetch only required fields for efficiency
+    const { data, error } = await supabase
+      .from("joining")
+      .select("joining_no, name_as_per_aadhar, designation");
+
+    if (error) {
+      throw new Error(error.message);
     }
-  };
+
+    if (!data || data.length === 0) {
+      throw new Error("No employee data found");
+    }
+
+    // Map data into the format you need
+    const employeeData = data
+      .map((row) => ({
+        id: row.joining_no || "",
+        name: row.name_as_per_aadhar || "",
+        designation: row.designation || "",
+      }))
+      .filter((emp) => emp.name && emp.id); // remove empty rows
+
+    setEmployees(employeeData);
+  } catch (error) {
+    console.error("Error fetching employee data:", error);
+    toast.error(`Failed to load employee data: ${error.message}`);
+  }
+};
+
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -190,47 +175,31 @@ const LeaveRequest = () => {
     return diffDays;
   };
 
-  const calculateDaysInMonth = (startDateStr, endDateStr, month, year) => {
+const calculateDaysInMonth = (startDateStr, endDateStr, month, year) => {
   if (!startDateStr || !endDateStr || month === 'all') return 0;
   
-  let startDate, endDate;
+  // Parse dates safely
+  const startDate = parseDate(startDateStr);
+  const endDate = parseDate(endDateStr);
   
-  // Handle different date formats
-  if (startDateStr.includes('/')) {
-    const [startDay, startMonth, startYear] = startDateStr.split('/').map(Number);
-    startDate = new Date(startYear, startMonth - 1, startDay);
-  } else {
-    startDate = new Date(startDateStr);
-  }
+  if (!startDate || !endDate) return 0;
   
-  if (endDateStr.includes('/')) {
-    const [endDay, endMonth, endYear] = endDateStr.split('/').map(Number);
-    endDate = new Date(endYear, endMonth - 1, endDay);
-  } else {
-    endDate = new Date(endDateStr);
-  }
-  
-  // Adjust start date if it's before the selected month
+  // Get the first and last day of the selected month
   const selectedMonthStart = new Date(year, parseInt(month), 1);
   const selectedMonthEnd = new Date(year, parseInt(month) + 1, 0);
   
-  if (startDate < selectedMonthStart) {
-    startDate = selectedMonthStart;
-  }
+  // Adjust dates to be within the selected month
+  const effectiveStart = startDate < selectedMonthStart ? selectedMonthStart : startDate;
+  const effectiveEnd = endDate > selectedMonthEnd ? selectedMonthEnd : endDate;
   
-  // Adjust end date if it's after the selected month
-  if (endDate > selectedMonthEnd) {
-    endDate = selectedMonthEnd;
-  }
+  // If dates don't overlap with the selected month
+  if (effectiveStart > effectiveEnd) return 0;
   
-  // If the adjusted dates are invalid, return 0
-  if (startDate > endDate) {
-    return 0;
-  }
-  
-  const diffTime = endDate - startDate;
+  // Calculate days (inclusive of both start and end dates)
+  const diffTime = effectiveEnd - effectiveStart;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-  return diffDays;
+  
+  return diffDays > 0 ? diffDays : 0;
 };
 
   const formatDOB = (dateString) => {
@@ -273,66 +242,53 @@ const LeaveRequest = () => {
     return date.getMonth() === parseInt(monthIndex) && date.getFullYear() === parseInt(year);
   };
 
-  const fetchLeaveData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Leave Management&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch leave data');
-      }
-      
-      const rawData = result.data || result;
-      console.log("Raw data from API:", rawData);
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
+const fetchLeaveData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-      const dataRows = rawData.length > 1 ? rawData.slice(1) : [];
-      
-      // Process and filter data by employee name
-      const processedData = dataRows
-        .map((row, index) => ({
-          id: index + 1,
-          timestamp: row[0] || '',
-          serialNo: row[1] || '',
-          employeeId: row[2] || '',
-          employeeName: row[3] || '',
-          startDate: row[4] || '',
-          endDate: row[5] || '',
-          reason: row[6] || '',
-          days: calculateDays(row[4], row[5]),
-          status: row[7] || 'Pending',
-          leaveType: row[8] || '', // Column I (index 8) - Leave Type
-          appliedDate: row[0] || '', // Using timestamp as applied date
-          approvedBy: row[9] || '', // Adjust index if needed
-        }))
-        .filter(item => item.employeeName === user.Name);
-      
-      console.log("Filtered leave data:", processedData);
-      setLeavesData(processedData);
-     
-    } catch (error) {
-      console.error('Error fetching leave data:', error);
-      setError(error.message);
-      toast.error(`Failed to load leave data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
-    }
-  };
+  try {
+    // ✅ Fetch rows from Supabase
+    const { data, error } = await supabase
+      .from("leave_management")
+      .select("*")
+      .eq("employee_name", user.name) // filter by logged-in user
+      .order("timestamp", { ascending: false }); // newest first
+
+    if (error) throw error;
+
+    console.log("Raw data from Supabase:", data);
+
+    const processedData = data.map((row, index) => ({
+      id: row.id,                           // Supabase primary key
+      timestamp: row.timestamp  || "",
+            // if you have a serial_no column
+      employeeId: row.employee_id || "",
+      employeeName: row.employee_name || "",
+      startDate: row.leave_date_start || "",
+      endDate: row.leave_date_end || "",
+      reason: row.remarks || "",
+      days: calculateDays(row.leave_date_start, row.leave_date_end),
+      status: row.status || "Pending",
+      leaveType: row.leave_type || "",
+      appliedDate: row.timestamp || row.created_at || "",
+      approvedBy: row.hod_name || "",       // adjust if you store approvals differently
+    }));
+
+    console.log("Filtered leave data:", processedData);
+    setLeavesData(processedData);
+
+  } catch (error) {
+    console.error("Error fetching leave data:", error);
+    setError(error.message);
+    toast.error(`Failed to load leave data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchLeaveData();
@@ -341,69 +297,77 @@ const LeaveRequest = () => {
     fetchHodNames();
   }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
 
-    if (!formData.employeeName || !formData.leaveType || !formData.fromDate || !formData.toDate || !formData.reason || !formData.hodName) {
-      toast.error('Please fill all required fields');
-      return;
-    }
+const handleSubmit = async (e) => {
+  e.preventDefault();
 
-    try {
-      setSubmitting(true);
-      const now = new Date();
-      const formattedTimestamp = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+  if (
+    !formData.employeeName ||
+    !formData.leaveType ||
+    !formData.fromDate ||
+    !formData.toDate ||
+    !formData.reason ||
+    !formData.hodName
+  ) {
+    toast.error("Please fill all required fields");
+    return;
+  }
 
-      const rowData = [
-        formattedTimestamp,           // Timestamp
-        "",                          // Serial number (empty for auto-increment)
-        formData.employeeId,         // Employee ID
-        formData.employeeName,       // Employee Name
-        formatDOB(formData.fromDate), // Leave Date Start
-        formatDOB(formData.toDate),   // Leave Date End
-        formData.reason,             // Reason
-        "Pending",                   // Status
-        formData.leaveType,          // Leave Type
-        formData.hodName,            // HOD Name (Column J, index 9)
-        formData.designation         // Designation (Column K, index 10)
-      ];
+  try {
+    setSubmitting(true);
 
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-        method: 'POST',
-        body: new URLSearchParams({
-          sheetName: 'Leave Management',
-          action: 'insert',
-          rowData: JSON.stringify(rowData),
-        }),
+    // Format timestamp in ISO (Postgres friendly)
+    const now = new Date();
+    const formattedTimestamp = now.toISOString(); // "2025-09-18T12:34:56.789Z"
+
+    // ✅ Convert to ISO format for Supabase
+    const leaveStartISO = new Date(formData.fromDate).toISOString().split("T")[0]; // YYYY-MM-DD
+    const leaveEndISO = new Date(formData.toDate).toISOString().split("T")[0];     // YYYY-MM-DD
+
+    const rowData = {
+      timestamp: formattedTimestamp,       // use timestamptz in Supabase
+      employee_id: formData.employeeId,
+      employee_name: formData.employeeName,
+      leave_date_start: leaveStartISO,     // YYYY-MM-DD (date column)
+      leave_date_end: leaveEndISO,         // YYYY-MM-DD (date column)
+      remarks: formData.reason,
+      status: "Pending",
+      leave_type: formData.leaveType,
+      hod_name: formData.hodName,
+      designation: formData.designation,
+    };
+
+    const { data, error } = await supabase
+      .from("leave_management")
+      .insert([rowData])
+      .select();
+
+    if (error) throw new Error(error.message);
+
+    if (data && data.length > 0) {
+      toast.success("Leave Request submitted successfully!");
+
+      setFormData({
+        employeeId: employeeId,
+        employeeName: user.Name || "",
+        designation: formData.designation || "",
+        hodName: "",
+        leaveType: "",
+        fromDate: "",
+        toDate: "",
+        reason: "",
       });
-
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success('Leave Request submitted successfully!');
-        setFormData({
-          employeeId: employeeId,
-          employeeName: user.Name || '',
-          designation: formData.designation || '',
-          hodName: '',
-          leaveType: '',
-          fromDate: '',
-          toDate: '',
-          reason: ''
-        });
-        setShowModal(false);
-        // Refresh the data
-        fetchLeaveData();
-      } else {
-        toast.error('Failed to insert: ' + (result.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Insert error:', error);
-      toast.error('Something went wrong!');
-    } finally {
-      setSubmitting(false);
+      setShowModal(false);
+      fetchLeaveData();
     }
-  };
+  } catch (error) {
+    console.error("Insert error:", error);
+    toast.error(`Something went wrong: ${error.message}`);
+  } finally {
+    setSubmitting(false);
+  }
+};
+
 
   const leaveTypes = [
     'Casual Leave',
@@ -426,28 +390,30 @@ const LeaveRequest = () => {
   const yearOptions = getYearOptions();
 
   // Calculate leave counts based on selected month and year
-  const calculateLeaveCounts = () => {
+// Replace your calculateLeaveCounts function with this updated version
+const calculateLeaveCounts = () => {
   // Filter for approved leaves for this specific employee
   const approvedLeaves = leavesData.filter(leave => 
     leave.status && leave.status.toLowerCase() === 'approved' && 
-    leave.employeeName === user.Name &&
+    leave.employeeName === user.name &&
     (selectedMonth === 'all' || 
      isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) || 
      isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear))
   );
-    return {
+  
+  // Calculate days for each leave type
+  return {
     'Casual Leave': approvedLeaves
-      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'casual leave')
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase().includes('casual'))
       .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
     'Earned Leave': approvedLeaves
-      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'earned leave')
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase().includes('earned'))
       .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
     'Normal Leave': approvedLeaves
-      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase() === 'normal leave')
+      .filter(leave => leave.leaveType && leave.leaveType.toLowerCase().includes('normal'))
       .reduce((sum, leave) => sum + calculateDaysInMonth(leave.startDate, leave.endDate, selectedMonth, parseInt(selectedYear)), 0),
   };
 };
-
   // Calculate leave balance based on approved leaves for the specific employee
   const calculateLeaveBalance = () => {
     // Filter for approved leaves for this specific employee
@@ -478,7 +444,7 @@ const LeaveRequest = () => {
       leave =>
         leave.status &&
         leave.status.toLowerCase() === 'approved' &&
-        leave.employeeName === user.Name &&
+        leave.employeeName === user.name &&
         (selectedMonth === 'all' ||
           isDateInSelectedPeriod(leave.startDate, selectedMonth, selectedYear) ||
           isDateInSelectedPeriod(leave.endDate, selectedMonth, selectedYear))
@@ -573,7 +539,7 @@ const LeaveRequest = () => {
 
       {/* Leave Balance Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-  {Object.entries(calculateLeaveCounts()).map(([leaveType, days]) => (
+  {Object.entries(calculateApprovedLeaveCounts()).map(([leaveType, days]) => (
     <div key={leaveType} className="bg-white rounded-xl shadow-lg border p-6">
       <div className="flex items-center justify-between">
         <div>
@@ -624,10 +590,10 @@ const LeaveRequest = () => {
                     <tr key={request.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{request.leaveType}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {request.startDate}
+                        {formatDOB(request.startDate)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {request.endDate}
+                        {formatDOB(request.endDate)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{request.days}</td>
                       <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{request.reason}</td>
@@ -643,7 +609,7 @@ const LeaveRequest = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {request.appliedDate}
+                        {formatDOB(request.appliedDate)}
                       </td>
                     </tr>
                   ))}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import supabase from '../SupabaseClient';
 
 const MisReport = () => {
   const [peopleData, setPeopleData] = useState([]);
@@ -9,31 +10,42 @@ const MisReport = () => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=MIS&action=fetch');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch data');
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        // Process the data from the sheet
-        const processedData = processSheetData(data.data);
-        setPeopleData(processedData);
-      } else {
-        throw new Error(data.error || 'Failed to fetch data from sheet');
-      }
-    } catch (err) {
-      setError(err.message);
-      console.error('Error fetching data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+const fetchData = async () => {
+  try {
+    setLoading(true);
+
+    // Fetch rows from Supabase MIS table
+    const { data, error } = await supabase
+      .from("mis")
+      .select("*");
+
+    if (error) throw error;
+
+    // Map rows into structured objects with your columns
+    const processedData = data.map((row) => ({
+      dateStart: row.date_start || "",                // "Date Start"
+      dateEnd: row.date_end || "",                    // "Date End"
+      name: row.name || "",                           // "Name"
+      target: row.target || "",                       // "Target"
+      actualWorkDone: row.actual_work_done || "",     // "Actual Work Done"
+      weeklyWorkDone: row.weekly_work_done || "",     // "Weekly Work Done %"
+      weeklyWorkDoneOnTime: row.weekly_work_done_on_time || "", // "Weekly Work Done On Time %"
+      totalWorkDone: parseInt(row.total_work_done) || 0,        // "Total Work Done"
+      weekPending: row.week_pending || "",            // "Week Pending"
+      allPendingTillDate: row.all_pending_till_date || "", // "All Pending Till Date"
+    }));
+
+    setPeopleData(processedData);
+
+  } catch (err) {
+    setError(err.message);
+    console.error("Error fetching MIS data:", err);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const processSheetData = (sheetData) => {
     if (!sheetData || sheetData.length < 2) return [];
@@ -165,7 +177,7 @@ const MisReport = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {peopleData.length > 0 ? (
                   peopleData.map((person, index) => (
-                    <tr key={person.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-10 w-10">

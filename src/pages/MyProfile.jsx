@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { User, Mail, Phone, MapPin, Calendar, Building, Edit3, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const MyProfile = () => {
   const [isEditing, setIsEditing] = useState(false);
@@ -8,125 +9,73 @@ const MyProfile = () => {
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchJoiningData = async () => {
-    try {
-      // Get user data from localStorage
-      const userData = localStorage.getItem('user');
-      if (!userData) {
-        throw new Error('No user data found in localStorage');
-      }
 
-      const currentUser = JSON.parse(userData);
-      const userName = currentUser.Name;
 
-      // Fetch data from the sheet API
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from JOINING sheet');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
 
-      const headers = rawData[5];
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-      
-      const getIndex = (headerName) => {
-        const index = headers.findIndex(h => 
-          h && h.toString().trim().toLowerCase() === headerName.toLowerCase()
-        );
-        if (index === -1) {
-          console.warn(`Column "${headerName}" not found in sheet`);
-        }
-        return index;
-      };
-
-      const processedData = dataRows.map(row => ({
-        timestamp: row[getIndex('Timestamp')] || '',
-        joiningNo: row[getIndex('SKA-Joining ID')] || '',
-        candidateName: row[getIndex('Name As Per Aadhar')] || '',
-        candidatePhoto: row[getIndex("Candidate's Photo")] || '',
-        fatherName: row[getIndex('Father Name')] || '',
-        dateOfJoining: row[getIndex('Date Of Joining')] || '',
-        joiningPlace: row[getIndex('Joining Place')] || '',
-        designation: row[getIndex('Designation')] || '',
-        salary: row[getIndex('Department')] || '',
-        currentAddress: row[getIndex('Current Address')] || '',
-        addressAsPerAadhar: row[getIndex('Address As Per Aadhar Card')] || '',
-        bodAsPerAadhar: row[getIndex('Date Of Birth As Per Aadhar Card')] || '',
-        gender: row[getIndex('Gender')] || '',
-        mobileNo: row[getIndex('Mobile No.')] || '',
-        familyMobileNo: row[getIndex('Family Mobile No')] || '',
-        relationWithFamily: row[getIndex('Relationship With Family Person')] || '',
-        email: row[getIndex('Personal Email-Id')] || '', 
-        companyName: row[getIndex('Department')] || '',
-        aadharNo: row[getIndex('Aadhar Card No')] || '',
-      }));
-
-      // Filter data for the current user
-      const filteredData = processedData.filter(task => 
-        task.candidateName?.trim().toLowerCase() === userName.trim().toLowerCase()
-      );
-
-      if (filteredData.length > 0) {
-        const profile = filteredData[0];
-        
-        // Fetch profile image from ENQUIRY sheet
-        try {
-          const enquiryResponse = await fetch(
-            'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=ENQUIRY&action=fetch'
-          );
-          
-          if (enquiryResponse.ok) {
-            const enquiryResult = await enquiryResponse.json();
-            if (enquiryResult.success) {
-              const enquiryData = enquiryResult.data || enquiryResult;
-              const enquiryHeaders = enquiryData[0];
-              
-              // Find the column index for candidate photo (Column P, index 15)
-              const photoIndex = 15; // Column P is index 15 (0-based)
-              
-              // Find the row with matching employee ID
-              for (let i = 1; i < enquiryData.length; i++) {
-                const row = enquiryData[i];
-                if (row[0] === profile.joiningNo && row[photoIndex]) {
-                  profile.candidatePhoto = row[photoIndex];
-                  break;
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching profile image from ENQUIRY sheet:', error);
-          // Continue without the profile image if there's an error
-        }
-        
-        setProfileData(profile);
-        setFormData(profile);
-        localStorage.setItem("employeeId", profile.joiningNo);
-      } else {
-        toast.error('No profile data found for current user');
-      }
-      
-    } catch (error) {
-      console.error('Error fetching joining data:', error);
-      toast.error(`Failed to load profile data: ${error.message}`);
-    } finally {
-      setLoading(false);
+const fetchJoiningData = async () => {
+  try {
+    // Get user data from localStorage
+    const userData = localStorage.getItem("user");
+    if (!userData) {
+      throw new Error("No user data found in localStorage");
     }
-  };
+
+    const currentUser = JSON.parse(userData);
+    const userName = currentUser.name?.trim().toLowerCase();
+
+    // Fetch data directly from Supabase JOINING table
+    const { data, error } = await supabase
+      .from("joining")
+      .select("*")
+      .ilike("name_as_per_aadhar", userName) // case-insensitive match
+      .maybeSingle(); // return single row if found
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      toast.error("No profile data found for current user");
+      return;
+    }
+
+    // Build profile object directly from Supabase row
+    const profile = {
+      timestamp: data.timestamp,
+      joiningNo: data.joining_no,
+      candidateName: data.name_as_per_aadhar,
+      candidatePhoto: data.candidate_photo,
+      fatherName: data.father_name,
+      dateOfJoining: data.date_of_joining,
+      joiningPlace: data.branch_name, // Assuming joiningPlace = branch_name
+      designation: data.designation,
+      salary: data.department,
+      currentAddress: data.current_address,
+      addressAsPerAadhar: data.aadhar_frontside_photo, // adjust if different
+      bodAsPerAadhar: data.date_of_birth,
+      gender: data.gender,
+      mobileNo: data.mobile_no,
+      familyMobileNo: data.family_mobile_no,
+      relationWithFamily: data.relationship_with_family,
+      email: data.candidate_email,
+      companyName: data.department,
+      aadharNo: data.aadhar_no,
+    };
+
+    // Store in state + localStorage
+    setProfileData(profile);
+    setFormData(profile);
+    localStorage.setItem("employeeId", profile.joiningNo);
+
+  } catch (error) {
+    console.error("Error fetching joining data:", error);
+    toast.error(`Failed to load profile data: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+
 
   useEffect(() => {
     fetchJoiningData();
@@ -140,108 +89,55 @@ const MyProfile = () => {
     }));
   };
 
-  const handleSave = async () => {
-    try {
-      setLoading(true);
-      
-      // 1. Fetch current data from JOINING sheet
-      const fullDataResponse = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-      
-      if (!fullDataResponse.ok) {
-        throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
-      }
+ 
 
-      const fullDataResult = await fullDataResponse.json();
-      const allData = fullDataResult.data || fullDataResult;
+const handleSave = async () => {
+  try {
+    setLoading(true);
 
-      // 2. Find header row (assuming it's row 6 as in your original code)
-      let headerRowIndex = 5; // 0-based index for row 6
-      const headers = allData[headerRowIndex].map(h => h?.toString().trim());
-
-      // 3. Find Employee ID column index
-      const employeeIdIndex = headers.findIndex(h => h?.toLowerCase() === "employee id");
-      if (employeeIdIndex === -1) {
-        throw new Error("Could not find 'Employee ID' column");
-      }
-
-      // 4. Find the employee row index
-      const rowIndex = allData.findIndex((row, idx) =>
-        idx > headerRowIndex &&
-        row[employeeIdIndex]?.toString().trim() === profileData.joiningNo?.toString().trim()
-      );
-      
-      if (rowIndex === -1) throw new Error(`Employee ${profileData.joiningNo} not found`);
-
-      // 5. Get a copy of the existing row
-      let currentRow = [...allData[rowIndex]];
-
-      // 6. Apply updates to the row data
-      // Map form fields to their respective column indices
-      const headerMap = {
-        'Mobile No.': headers.findIndex(h => h?.toLowerCase() === 'mobile no.'),
-        'Family Mobile No.': headers.findIndex(h => h?.toLowerCase() === 'family mobile no.'),
-        'Personal Email-Id': headers.findIndex(h => h?.toLowerCase() === 'personal email-id'),
-        'Current Address': headers.findIndex(h => h?.toLowerCase() === 'current address')
-        // Add more fields as needed
-      };
-
-      // Only update fields that are editable in the form
-      if (headerMap['Mobile No.'] !== -1) {
-        currentRow[headerMap['Mobile No.']] = formData.mobileNo || '';
-      }
-      if (headerMap['Family Mobile No.'] !== -1) {
-        currentRow[headerMap['Family Mobile No.']] = formData.familyMobileNo || '';
-      }
-      if (headerMap['Personal Email-Id'] !== -1) {
-        currentRow[headerMap['Personal Email-Id']] = formData.email || '';
-      }
-      if (headerMap['Current Address'] !== -1) {
-        currentRow[headerMap['Current Address']] = formData.currentAddress || '';
-      }
-
-      // 7. Prepare payload
-      const payload = {
-        sheetName: "JOINING",
-        action: "update",
-        rowIndex: rowIndex + 1, // Convert to 1-based index
-        rowData: JSON.stringify(currentRow)
-      };
-
-      console.log("Final payload being sent:", payload);
-
-      // 8. Send update request
-      const response = await fetch(
-        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams(payload).toString(),
-        }
-      );
-
-      const result = await response.json();
-      console.log("Update result:", result);
-
-      if (result.success) {
-        // Update local state only after successful API update
-        setProfileData(formData);
-        toast.success('Profile updated successfully!');
-        setIsEditing(false);
-      } else {
-        throw new Error(result.error || "Failed to update data");
-      }
-
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      toast.error(`Failed to update profile: ${error.message}`);
-    } finally {
-      setLoading(false);
+    if (!profileData?.joiningNo) {
+      throw new Error("No employee ID found for current profile");
     }
-  };
+
+    // 1. Build update object (only editable fields)
+    const updateData = {
+      mobile_no: formData.mobileNo || "",
+      family_mobile_no: formData.familyMobileNo || "",
+      candidate_email: formData.email || "",
+      current_address: formData.currentAddress || "",
+      // add more fields as needed, must match column names in Supabase
+    };
+
+    // 2. Update row in Supabase JOINING table
+    const { data, error } = await supabase
+      .from("joining")
+      .update(updateData)
+      .eq("joining_no", profileData.joiningNo) // find row by employee ID
+      .select()
+      .single(); // return the updated row
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      throw new Error(`Employee ${profileData.joiningNo} not found`);
+    }
+
+    // 3. Update local state only after successful DB update
+    setProfileData(data);
+    setFormData(data);
+    toast.success("Profile updated successfully!");
+    setIsEditing(false);
+
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    toast.error(`Failed to update profile: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const handleCancel = () => {
     setFormData(profileData || {});

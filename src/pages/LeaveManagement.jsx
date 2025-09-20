@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X, Check, Clock, Calendar, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import supabase from '../SupabaseClient';
 
 const LeaveManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -72,25 +73,51 @@ const LeaveManagement = () => {
     fetchHodNames(); // Fetch HOD names on component mount
   }, []);
 
-  const handleCheckboxChange = (leaveId, rowData) => {
-    if (selectedRow?.serialNo === leaveId) {
-      setSelectedRow(null);
-      setEditableDates({ from: '', to: '' });
-    } else {
-      // Convert DD/MM/YYYY to YYYY-MM-DD for date input
-      const formatForInput = (dateStr) => {
-        if (!dateStr) return '';
-        const [day, month, year] = dateStr.split('/');
-        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-      };
+// Replace your handleCheckboxChange function with this fixed version
+const handleCheckboxChange = (leaveId, rowData) => {
+  if (selectedRow?.serialNo === leaveId) {
+    setSelectedRow(null);
+    setEditableDates({ from: '', to: '' });
+  } else {
+    // Convert DD/MM/YYYY to YYYY-MM-DD for date input
+    const formatForInput = (dateStr) => {
+      // Handle undefined, null, or empty values
+      if (!dateStr) return '';
+      
+      // If it's already in YYYY-MM-DD format (from Supabase), return as-is
+      if (dateStr.includes('-')) {
+        return dateStr;
+      }
+      
+      // Handle DD/MM/YYYY format
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          const [day, month, year] = parts;
+          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+      }
+      
+      // If format is unexpected, try to parse as Date object
+      try {
+        const date = new Date(dateStr);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {
+        console.error('Error parsing date:', e);
+      }
+      
+      return ''; // Return empty string if all parsing fails
+    };
 
-      setSelectedRow(rowData);
-      setEditableDates({ 
-        from: formatForInput(rowData.startDate), 
-        to: formatForInput(rowData.endDate) 
-      });
-    }
-  };
+    setSelectedRow(rowData);
+    setEditableDates({ 
+      from: formatForInput(rowData.startDate), 
+      to: formatForInput(rowData.endDate) 
+    });
+  }
+};
 
   const handleDateChange = (field, value) => {
     setEditableDates(prev => ({
@@ -99,43 +126,40 @@ const LeaveManagement = () => {
     }));
   };
 
-  // Fetch employees from JOINING sheet
+
+
 const fetchEmployees = async () => {
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch employee data');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
+  try {
+    // Fetch employees from Supabase
+    const { data, error } = await supabase
+      .from("joining") // replace with your actual table name
+      .select("joining_no, name_as_per_aadhar, designation"); // select only needed columns
 
-      // Data starts from row 7 (index 6), Column E is index 4, Column B is index 1, Column I is index 8
-      const employeeData = rawData.slice(6).map((row, index) => ({
-        id: row[1] || '', // Column B (Employee ID)
-        name: row[2] || '', // Column E (Employee Name)
-        designation: row[5] || '', // Column I (Designation)
-        rowIndex: index + 7 // Actual row number in sheet
-      })).filter(emp => emp.name && emp.id); // Filter out empty entries
-
-      setEmployees(employeeData);
-    } catch (error) {
-      console.error('Error fetching employee data:', error);
-      toast.error(`Failed to load employee data: ${error.message}`);
+    if (error) {
+      throw new Error(error.message);
     }
-  };
+
+    if (!Array.isArray(data)) {
+      throw new Error("Expected array data not received from Supabase");
+    }
+
+
+    // Transform data to match your state format
+    const employeeData = data
+      .map(emp => ({
+        id: emp.joining_no || "",
+        name: emp.name_as_per_aadhar || "",
+        designation: emp.designation || "",
+      }))
+      .filter(emp => emp.name && emp.id); // Filter out empty entries
+
+    setEmployees(employeeData);
+  } catch (error) {
+    console.error("Error fetching employee data:", error);
+    toast.error(`Failed to load employee data: ${error.message}`);
+  }
+};
+
 
 
   // Handle employee selection
@@ -205,156 +229,124 @@ const fetchEmployees = async () => {
     return `${day}/${month}/${year}`;
   };
 
-  // Submit leave request
-  const handleSubmit = async (e) => {
-    e.preventDefault();
 
-    if (!formData.employeeName || !formData.leaveType || !formData.fromDate || !formData.toDate || !formData.reason || !formData.hodName) {
-      toast.error('Please fill all required fields');
-      return;
+const handleSubmit = async (e) => {
+  e.preventDefault();
+
+  if (
+    !formData.employeeName ||
+    !formData.leaveType ||
+    !formData.fromDate ||
+    !formData.toDate ||
+    !formData.reason ||
+    !formData.hodName
+  ) {
+    toast.error("Please fill all required fields");
+    return;
+  }
+
+  try {
+    setSubmitting(true);
+
+    const now = new Date();
+    const formattedTimestamp = now.toISOString().split("T")[0]; // YYYY-MM-DD
+
+    // Insert into Supabase
+    const { error } = await supabase.from("leave_management").insert([
+      {
+        timestamp: formattedTimestamp,
+        // serialNo can be auto-generated if you made it a SERIAL or IDENTITY column in Supabase
+        employee_id: formData.employeeId,
+        employee_name: formData.employeeName,
+        leave_date_start: formData.fromDate,
+        leave_date_end: formData.toDate,
+        remarks: formData.reason,
+        status: "pending", // default status
+        leave_type: formData.leaveType,
+        hod_name: formData.hodName,
+        designation: formData.designation,
+      },
+    ]);
+
+    if (error) {
+      throw new Error(error.message);
     }
 
-    try {
-      setSubmitting(true);
-      const now = new Date();
-      const formattedTimestamp = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+    toast.success("Leave Request submitted successfully!");
+    setFormData({
+      employeeId: "",
+      employeeName: "",
+      designation: "",
+      hodName: "",
+      leaveType: "",
+      fromDate: "",
+      toDate: "",
+      reason: "",
+    });
+    setShowModal(false);
 
-      const rowData = [
-        formattedTimestamp,           // Timestamp
-        "",                          // Serial number (empty for auto-increment)
-        formData.employeeId,         // Employee ID
-        formData.employeeName,       // Employee Name
-        formatDOB(formData.fromDate), // Leave Date Start
-        formatDOB(formData.toDate),   // Leave Date End
-        formData.reason,             // Reason
-        "Pending",                   // Status
-        formData.leaveType,          // Leave Type
-        formData.hodName,            // HOD Name (Column J, index 9)
-        formData.designation         // Designation (Column K, index 10)
-      ];
+    // Refresh the data
+    fetchLeaveData();
+  } catch (error) {
+    console.error("Insert error:", error);
+    toast.error("Something went wrong: " + error.message);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec', {
-        method: 'POST',
-        body: new URLSearchParams({
-          sheetName: 'Leave Management',
-          action: 'insert',
-          rowData: JSON.stringify(rowData),
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success('Leave Request submitted successfully!');
-        setFormData({
-          employeeId: '',
-          employeeName: '',
-          designation: '',
-          hodName: '',
-          leaveType: '',
-          fromDate: '',
-          toDate: '',
-          reason: ''
-        });
-        setShowModal(false);
-        // Refresh the data
-        fetchLeaveData();
-      } else {
-        toast.error('Failed to insert: ' + (result.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Insert error:', error);
-      toast.error('Something went wrong!');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
 const handleLeaveAction = async (action) => {
   if (!selectedRow) {
-    toast.error('Please select a leave request');
+    toast.error("Please select a leave request");
     return;
   }
 
   setActionInProgress(action);
   setLoading(true);
-  
+
   try {
-    const fullDataResponse = await fetch(
-      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Leave Management&action=fetch'
-    );
-    
-    if (!fullDataResponse.ok) {
-      throw new Error(`HTTP error! status: ${fullDataResponse.status}`);
-    }
-
-    const fullDataResult = await fullDataResponse.json();
-    const allData = fullDataResult.data || fullDataResult;
-
-    // Find the row index by matching Column B (serial number) and Column C (employee ID)
-    const rowIndex = allData.findIndex((row, idx) => 
-      idx > 0 && // Skip header row
-      row[1]?.toString().trim() === selectedRow.serialNo?.toString().trim() &&
-      row[2]?.toString().trim() === selectedRow.employeeId?.toString().trim()
-    );
-    
-    if (rowIndex === -1) {
-      throw new Error(`Leave request not found for employee ${selectedRow.employeeId}`);
-    }
-
-    let currentRow = [...allData[rowIndex]];
-    
+    // Format today's date
     const today = new Date();
-    const day = String(today.getDate()).padStart(2, '0');
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const year = today.getFullYear();
-    const formattedDate = `${day}/${month}/${year}`;
-    
-    // Update dates if they were changed (Column E and F)
+    const formattedDate = today.toISOString().split("T")[0]; // YYYY-MM-DD
+
+    // Build update data
+    const updateData = {
+      timestamp: formattedDate,
+      status: action === "accept" ? "approved" : "rejected",
+    };
+
+    // If dates were edited
     if (editableDates.from && editableDates.from !== selectedRow.startDate) {
-      const [year, month, day] = editableDates.from.split('-');
-      currentRow[4] = `${day}/${month}/${year}`;
+      updateData.leave_date_start = editableDates.from;
     }
 
     if (editableDates.to && editableDates.to !== selectedRow.endDate) {
-      const [year, month, day] = editableDates.to.split('-');
-      currentRow[5] = `${day}/${month}/${year}`;
+      updateData.leave_date_end = editableDates.to;
     }
-    
-    // Update timestamp (Column A) and status (Column H, index 7)
-    currentRow[0] = formattedDate;
-    currentRow[7] = action === 'accept' ? 'approved' : 'rejected';
 
-    const payload = {
-      sheetName: "Leave Management",
-      action: "update",
-      rowIndex: rowIndex + 1, // Add 1 because Google Sheets rows are 1-indexed
-      rowData: JSON.stringify(currentRow)
-    };
+    // Update in Supabase
+    const { error } = await supabase
+      .from("leave_management") // your table name
+      .update(updateData)
+      .eq("id", selectedRow.serialNo) // match by serial number
+      .eq("employee_id", selectedRow.employeeId); // and employee id
 
-    const response = await fetch(
-      "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams(payload).toString(),
-      }
+    if (error) throw new Error(error.message);
+
+    toast.success(
+      `Leave ${action === "accept" ? "approved" : "rejected"} for ${
+        selectedRow.employeeName || "employee"
+      }`
     );
 
-    const result = await response.json();
-    if (result.success) {
-      toast.success(`Leave ${action === 'accept' ? 'approved' : 'rejected'} for ${selectedRow.employeeName || 'employee'}`);
-      fetchLeaveData();
-      setSelectedRow(null);
-      setEditableDates({ from: '', to: '' });
-    } else {
-      throw new Error(result.error || "Update failed");
-    }
+    // Refresh data
+    fetchLeaveData();
+    setSelectedRow(null);
+    setEditableDates({ from: "", to: "" });
 
   } catch (error) {
-    console.error('Update error:', error);
+    console.error("Update error:", error);
     toast.error(`Failed to ${action} leave: ${error.message}`);
   } finally {
     setLoading(false);
@@ -362,69 +354,65 @@ const handleLeaveAction = async (action) => {
   }
 };
 
-  const fetchLeaveData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
 
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=Leave Management&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch leave data');
-      }
-      
-      const rawData = result.data || result;
-      console.log(rawData);
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
 
-      const dataRows = rawData.length > 1 ? rawData.slice(1) : [];
-      
-      const processedData = dataRows.map(row => ({
-        timestamp: row[0] || '',
-        serialNo: row[1] || '',
-        employeeId: row[2] || '',
-        employeeName: row[3] || '',
-        startDate: row[4] || '',
-        endDate: row[5] || '',
-        remark: row[6] || '',
-        days: calculateDays(row[4], row[5]),
-        status: row[7],
-        leaveType: row[8],
-        hodName : row[9] || '',
-      }));
+const fetchLeaveData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-      // Case-insensitive filtering
-      setPendingLeaves(processedData.filter(leave => 
-        leave.status?.toString().toLowerCase() === 'pending'
-      ));
-      setApprovedLeaves(processedData.filter(leave => 
-        leave.status?.toString().toLowerCase() === 'approved'
-      ));
-      setRejectedLeaves(processedData.filter(leave => 
-        leave.status?.toString().toLowerCase() === 'rejected'
-      ));
-     
-    } catch (error) {
-      console.error('Error fetching leave data:', error);
-      setError(error.message);
-      toast.error(`Failed to load leave data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
+  try {
+    // Fetch data from Supabase (replace "leave_management" with your table name)
+    const { data, error } = await supabase
+      .from("leave_management")
+      .select("*");
+
+    if (error) {
+      throw new Error(error.message);
     }
-  };
+
+    if (!Array.isArray(data)) {
+      throw new Error("Expected array data not received from Supabase");
+    }
+
+    console.log("Raw leave data from Supabase:", data);
+
+    // Transform data (similar to your Google Sheets row mapping)
+    const processedData = data.map(row => ({
+      timestamp: row.timestamp || "",
+      serialNo:row.id,
+      employeeId: row.employee_id || "",
+      employeeName: row.employee_name || "",
+      startDate: row.leave_date_start || "",
+      endDate: row.leave_date_end || "",
+      remark: row.remarks || "",
+      days: calculateDays(row.leave_date_start, row.leave_date_end),
+      status: row.status,
+      leaveType: row.leave_type,
+      hodName: row.hod_name || "",
+    }));
+
+    // Case-insensitive filtering
+    setPendingLeaves(processedData.filter(
+      leave => leave.status?.toString().toLowerCase() === "pending"
+    ));
+    setApprovedLeaves(processedData.filter(
+      leave => leave.status?.toString().toLowerCase() === "approved"
+    ));
+    setRejectedLeaves(processedData.filter(
+      leave => leave.status?.toString().toLowerCase() === "rejected"
+    ));
+
+  } catch (error) {
+    console.error("Error fetching leave data from Supabase:", error);
+    setError(error.message);
+    toast.error(`Failed to load leave data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchLeaveData();

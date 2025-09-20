@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Filter, Search, Clock, CheckCircle, ImageIcon } from "lucide-react";
 import useDataStore from "../store/dataStore";
+import supabase from "../SupabaseClient";
 
 const Employee = () => {
   const [activeTab, setActiveTab] = useState("joining");
@@ -27,159 +28,112 @@ const Employee = () => {
     return `${day}/${month}/${year}`;
   };
 
-  const fetchJoiningData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
 
-    try {
-      const response = await fetch(
-        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch"
-      );
+// ✅ Fetch JOINING data
+const fetchJoiningData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+  try {
+    const { data, error } = await supabase
+      .from("joining") // 👈 your Supabase table name
+      .select("*");
 
-      const result = await response.json();
-      console.log("Raw JOINING API response:", result);
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error("Expected array data not received");
 
-      if (!result.success) {
-        throw new Error(
-          result.error || "Failed to fetch data from JOINING sheet"
-        );
-      }
+    // Process each row to match your frontend structure
+    const processedData = data.map((row) => ({
+      employeeId: row.joining_no || "",
+      candidateName: row.name_as_per_aadhar || "",
+      fatherName: row.father_name || "",
+      dateOfJoining: row.date_of_joining || "",
+      designation: row.designation || "",
+      aadharPhoto: row.aadhar_frontside_photo || "",
+      candidatePhoto: row.candidate_photo || "",
+      address: row.current_address || "",
+      dateOfBirth: row.date_of_birth || "",
+      gender: row.gender || "",
+      mobileNo: row.mobile_no || "",
+      familyNo: row.family_mobile_no|| "",
+      relationshipWithFamily: row.relationship_with_family_person || "",
+      accountNo: row.current_bank_account_no|| "",
+      ifsc: row.ifsc_code || "",
+      branch: row.branch_name || "",
+      passbook: row.bank_passbook_url || "",
+      emailId: row.candidate_email || "",
+      department: row.department || "",
+      equipment: row.equipment || "",
+      aadharNo: row.aadhar_no || "",
+      columnAA: row.planned_date || "",
+      columnY: row.leaving_date || "",
+    }));
 
-      // Handle both array formats (direct data or result.data)
-      const rawData = result.data || result;
+    // Filter logic: columnAA has value AND columnY is empty
+    const activeEmployees = processedData.filter(
+      (employee) => employee.columnAA && !employee.columnY
+    );
 
-      if (!Array.isArray(rawData)) {
-        throw new Error("Expected array data not received");
-      }
+    setJoiningData(activeEmployees);
+  } catch (error) {
+    console.error("Error fetching joining data:", error);
+    setError(error.message);
+    toast.error(`Failed to load joining data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
 
-      // Get headers from row 6 (index 5 in 0-based array)
-      const headers = rawData[5];
+// ✅ Fetch LEAVING data
+const fetchLeavingData = async () => {
+  setLoading(true);
+  setTableLoading(true);
+  setError(null);
 
-      // Process data starting from row 7 (index 6)
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
+  try {
+    const { data, error } = await supabase
+      .from("leaving") // 👈 your Supabase table name
+      .select("*");
 
-      const getIndex = (headerName) => {
-        const index = headers.findIndex(
-          (h) =>
-            h && h.toString().trim().toLowerCase() === headerName.toLowerCase()
-        );
-        if (index === -1) {
-          console.warn(`Column "${headerName}" not found in sheet`);
-        }
-        return index;
-      };
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error("Expected array data not received");
 
-      const processedData = dataRows.map((row) => ({
-        employeeId: row[1] || "", // Column B (index 1)
-        candidateName: row[2] || "", // Column C (index 2)
-        fatherName: row[3] || "", // Column D (index 3)
-        dateOfJoining: row[4] || "", // Column E (index 4)
-        designation: row[5] || "", // Column F (index 5)
-        aadharPhoto: row[6] || "", // Column G (index 6)
-        candidatePhoto: row[7] || "", // Column H (index 7)
-        address: row[8] || "", // Column I (index 8)
-        dateOfBirth: row[9] || "", // Column J (index 9)
-        gender: row[10] || "", // Column K (index 10)
-        mobileNo: row[11] || "", // Column L (index 11)
-        familyNo: row[12] || "", // Column M (index 12)
-        relationshipWithFamily: row[13] || "", // Column N (index 13)
-        accountNo: row[14] || "", // Column O (index 14)
-        ifsc: row[15] || "", // Column P (index 15)
-        branch: row[16] || "", // Column Q (index 16)
-        passbook: row[17] || "", // Column R (index 17)
-        emailId: row[18] || "", // Column S (index 18)
-        department: row[20] || "", // Column U (index 20)
-        equipment: row[21] || "", // Column V (index 21)
-        aadharNo: row[22] || "", // Column W (index 22) - Fixed index
-        // Keep existing filter fields
-        columnAA: row[26] || "",
-        columnY: row[24] || "",
-      }));
+    const processedData = data.map((row) => ({
+      timestamp: row.timestamp || "",
+      employeeId: row.employee_id || "",
+      name: row.employee_name || "",
+      dateOfLeaving: row.date_of_leaving || "",
+      mobileNo: row.mobile_no || "",
+      reasonOfLeaving: row.reason_of_leaving || "",
+      firmName: row.firm_name || "",
+      fatherName: row.father_name || "",
+      dateOfJoining: row.date_of_joining || "",
+      workingLocation: row.working_location || "",
+      designation: row.designation || "",
+      salary: row.salary || "",
+      plannedDate: row.planned_date || "",
+      actual: row.actual_date || "",
+      department:row.department||"",
+    }));
 
-      // Filter logic: Column AQ has value AND Column AO is null/empty
-      const activeEmployees = processedData.filter(
-        (employee) => employee.columnAA && !employee.columnY
-      );
+    // Filter logic: plannedDate is not null/empty
+    const leavingEmployees = processedData.filter(
+      (employee) => employee.plannedDate
+    );
 
-      setJoiningData(activeEmployees);
-    } catch (error) {
-      console.error("Error fetching joining data:", error);
-      setError(error.message);
-      toast.error(`Failed to load joining data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
-    }
-  };
+    setLeavingData(leavingEmployees);
+  } catch (error) {
+    console.error("Error fetching leaving data:", error);
+    setError(error.message);
+    toast.error(`Failed to load leaving data: ${error.message}`);
+  } finally {
+    setLoading(false);
+    setTableLoading(false);
+  }
+};
 
-  const fetchLeavingData = async () => {
-    setLoading(true);
-    setTableLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        "https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch"
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(
-          result.error || "Failed to fetch data from LEAVING sheet"
-        );
-      }
-
-      const rawData = result.data || result;
-
-      if (!Array.isArray(rawData)) {
-        throw new Error("Expected array data not received");
-      }
-
-      // Process data starting from row 7 (index 6) - skip headers
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-
-      const processedData = dataRows.map((row) => ({
-        timestamp: row[0] || "",
-        employeeId: row[1] || "",
-        name: row[2] || "",
-        dateOfLeaving: row[3] || "",
-        mobileNo: row[4] || "",
-        reasonOfLeaving: row[5] || "",
-        firmName: row[6] || "",
-        fatherName: row[7] || "",
-        dateOfJoining: row[8] || "",
-        workingLocation: row[9] || "",
-        designation: row[10] || "",
-        salary: row[11] || "",
-        plannedDate: row[12] || "", // Column M (index 12)
-        actual: row[13] || "",
-      }));
-
-      // Filter logic: plannedDate (Column M) has value
-      const leavingEmployees = processedData.filter(
-        (employee) => employee.plannedDate
-      );
-
-      setLeavingData(leavingEmployees);
-    } catch (error) {
-      console.error("Error fetching leaving data:", error);
-      setError(error.message);
-      toast.error(`Failed to load leaving data: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
-    }
-  };
 
   useEffect(() => {
     fetchJoiningData();
@@ -575,7 +529,7 @@ const Employee = () => {
                             {item.designation}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {item.salary}
+                            {item.department}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {item.reasonOfLeaving}
