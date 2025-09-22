@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
+import supabase from "../SupabaseClient";
 
 const CompanyCalendar = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -8,74 +9,57 @@ const CompanyCalendar = () => {
   const [companyEvents, setCompanyEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch calendar data from Google Sheets
-  const fetchCalendarData = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=CompanyCalendar&action=fetch'
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch calendar data');
-      }
-      
-      const rawData = result.data || result;
-      
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
 
-      // Skip header row and map to structured data
-      const dataRows = rawData.length > 1 ? rawData.slice(1) : [];
-      
-      const processedData = dataRows
-        .map((row, index) => {
-          // Format date to YYYY-MM-DD for consistency
-          let formattedDate = '';
-          if (row[2]) { // Date column
-            // Handle different date formats
-            const date = new Date(row[2]);
-            if (!isNaN(date.getTime())) {
-              formattedDate = date.toISOString().split('T')[0];
-            } else {
-              // Try to parse other date formats
-              const parts = row[2].split('/');
-              if (parts.length === 3) {
-                formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-              }
-            }
-          }
+const fetchCalendarData = async () => {
+  setLoading(true);
+  try {
+    // Fetch rows from Supabase
+    const { data, error } = await supabase
+      .from("company_calendar") 
+      .select("*")
+      .order("date", { ascending: true }); // optional sorting
 
-          return {
-            id: index + 1,
-            timestamp: row[0] || '',
-            title: row[1] || '',
-            date: formattedDate,
-            time: row[3] || '',
-            location: row[4] || '',
-            type: row[5] || 'meeting',
-            description: row[6] || ''
-          };
-        })
-        .filter(event => event.date && event.title); // Filter out invalid entries
+    if (error) throw error;
 
-      console.log("Processed calendar data:", processedData);
-      setCompanyEvents(processedData);
-
-    } catch (error) {
-      console.error('Error fetching calendar data:', error);
-      toast.error(`Failed to load calendar data: ${error.message}`);
-    } finally {
-      setLoading(false);
+    if (!Array.isArray(data)) {
+      throw new Error("Expected array data not received");
     }
-  };
+
+    // Process Supabase rows
+    const processedData = data
+      .map((row, index) => {
+        let formattedDate = "";
+        if (row.date) {
+          const date = new Date(row.date);
+          if (!isNaN(date.getTime())) {
+            formattedDate = date.toISOString().split("T")[0];
+          }
+        }
+
+        return {
+          id: row.id || index + 1, // use DB id if available
+          timestamp: row.timestamp || "",
+          title: row.title || "",
+          date: formattedDate,
+          time: row.time || "",
+          location: row.location || "",
+          type: row.type || "meeting",
+          description: row.description || "",
+        };
+      })
+      .filter((event) => event.date && event.title);
+
+    console.log("Processed calendar data (Supabase):", processedData);
+    setCompanyEvents(processedData);
+
+  } catch (error) {
+    console.error("Error fetching calendar data from Supabase:", error);
+    toast.error(`Failed to load calendar data: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchCalendarData();

@@ -24,6 +24,7 @@ import {
   CheckCircle,
   AlertTriangle
 } from 'lucide-react';
+import supabase from '../SupabaseClient';
 
 const Dashboard = () => {
   const [totalEmployee, setTotalEmployee] = useState(0);
@@ -49,54 +50,42 @@ const Dashboard = () => {
     { month: 'Jun', productivity: 96, satisfaction: 92 }
   ];
 
-  const fetchPostRequiredData = async () => {
+
+
+const fetchPostRequiredData = async () => {
   try {
-    const response = await fetch(
-      'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=INDENT&action=fetch'
+    // Fetch only necessary columns
+    const { data, error } = await supabase
+      .from("indent")
+      .select("post, number_of_posts, status");
+
+    if (error) throw error;
+
+    if (!Array.isArray(data)) {
+      throw new Error("Expected array data not received");
+    }
+
+    // Filter rows where status = "Need More"
+    const needMoreData = data.filter(
+      (row) => row.status?.toString().trim().toLowerCase() === "needmore"
     );
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
 
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to fetch data from INDENT sheet');
-    }
-
-    const rawData = result.data || result;
-    if (!Array.isArray(rawData)) {
-      throw new Error('Expected array data not received');
-    }
-
-    const headers = rawData[5]; // Row 6 headers
-    const dataRows = rawData.slice(6); // Row 7 onwards
-
-    // Find column indexes
-    const postNameIndex = 2; // Column C
-    const numberOfPostsIndex = 5; // Column F
-    const statusIndex = 8; // Column I
-
-    // Filter rows with "Need More" in status column (index 8)
-    const needMoreData = dataRows.filter(row => 
-      row[statusIndex]?.toString().trim().toLowerCase() === "need more"
-    );
-
-    // Prepare data for the chart
-    const postData = needMoreData.map(row => ({
-      postName: row[postNameIndex]?.toString().trim() || 'Unnamed Post',
-      numberOfPosts: parseInt(row[numberOfPostsIndex]) || 0
+    // Prepare chart data
+    const postData = needMoreData.map((row) => ({
+      postName: row.post,
+      numberOfPosts: parseInt(row.number_of_posts) || 0,
     }));
 
-    console.log("✅ Post Required Data:", postData);
-
+    console.log("✅ Post Required Data (Supabase):", postData);
     setPostRequiredData(postData);
 
   } catch (error) {
-    console.error("Error fetching post required data:", error);
+    console.error("Error fetching post required data from Supabase:", error);
     setPostRequiredData([]);
   }
 };
+
 
   const parseSheetDate = (dateStr) => {
     if (!dateStr) return null;
@@ -121,208 +110,138 @@ const Dashboard = () => {
 
   
 
-  const fetchJoiningCount = async () => {
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=JOINING&action=fetch'
-      );
-  
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-  
-      const result = await response.json();
-  
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from JOINING sheet');
-      }
-  
-      const rawData = result.data || result;
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
-  
-      // Headers are row 6 → index 5
-      const headers = rawData[5];
-      const dataRows = rawData.length > 6 ? rawData.slice(6) : [];
-  
-      // Find index of "Status", "Date of Joining", and "Designation" columns
-      const statusIndex = headers.findIndex(
-        h => h && h.toString().trim().toLowerCase() === "status"
-      );
-      
-      const dateOfJoiningIndex = headers.findIndex(
-        h => h && h.toString().trim().toLowerCase().includes("date of joining")
-      );
+const fetchJoiningCount = async () => {
+  try {
+    const { data, error } = await supabase
+      .from("joining")
+      .select("id, date_of_joining, designation, actual_date, leaving_date");
 
-      const designationIndex = headers.findIndex(
-        h => h && h.toString().trim().toLowerCase() === "designation"
-      );
-  
-      let activeCount = 0;
-      const monthlyHiring = {};
-      const designationCounts = {};
-      
-      // Initialize monthly hiring data for the last 6 months
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const currentDate = new Date();
-      for (let i = 5; i >= 0; i--) {
-        const monthIndex = (currentDate.getMonth() - i + 12) % 12;
-        const monthYear = `${months[monthIndex]} ${currentDate.getFullYear()}`;
-        monthlyHiring[monthYear] = { hired: 0 };
-      }
-  
-      if (statusIndex !== -1) {
-        activeCount = dataRows.filter(
-          row => row[statusIndex]?.toString().trim().toLowerCase() === "active"
-        ).length;
-      }
-  
-      // Count hires by month if date of joining column exists
-      if (dateOfJoiningIndex !== -1) {
-        dataRows.forEach(row => {
-          const dateStr = row[dateOfJoiningIndex];
-          if (dateStr) {
-            const date = parseSheetDate(dateStr);
-            if (date) {
-              const monthYear = `${months[date.getMonth()]} ${date.getFullYear()}`;
-              if (monthlyHiring[monthYear]) {
-                monthlyHiring[monthYear].hired += 1;
-              } else {
-                monthlyHiring[monthYear] = { hired: 1 };
-              }
-            }
-          }
-        });
-      }
+    if (error) throw error;
 
-      // Count employees by designation
-      if (designationIndex !== -1) {
-        dataRows.forEach(row => {
-          const designation = row[designationIndex]?.toString().trim();
-          if (designation) {
-            if (designationCounts[designation]) {
-              designationCounts[designation] += 1;
-            } else {
-              designationCounts[designation] = 1;
-            }
-          }
-        });
+    let activeCount = 0;
+    const monthlyHiring = {};
+    const designationCounts = {};
 
-        // Convert to array format for the chart
-        const designationArray = Object.keys(designationCounts).map(key => ({
-          designation: key,
-          employees: designationCounts[key]
-        }));
+    // Month labels
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const now = new Date();
 
-        setDesignationData(designationArray);
-      }
-  
-      // Update state
-      setActiveEmployee(dataRows.length);
-      
-      // Return both counts and monthly hiring data
-      return { 
-        total: dataRows.length, 
-        active: activeCount,
-        monthlyHiring 
-      };
-  
-    } catch (error) {
-      console.error("Error fetching joining count:", error);
-      return { total: 0, active: 0, monthlyHiring: {} };
+    // Initialize last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthYear = `${months[month.getMonth()]} ${month.getFullYear()}`;
+      monthlyHiring[monthYear] = { hired: 0 };
     }
-  };
 
-  const fetchLeaveCount = async () => {
-    try {
-      const response = await fetch(
-        'https://script.google.com/macros/s/AKfycbwfGaiHaPhexcE9i-A7q9m81IX6zWqpr4lZBe4AkhlTjVl4wCl0v_ltvBibfduNArBVoA/exec?sheet=LEAVING&action=fetch'
-      );
-  
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-  
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data from LEAVING sheet');
-      }
-  
-      const rawData = result.data || result;
-      if (!Array.isArray(rawData)) {
-        throw new Error('Expected array data not received');
-      }
-  
-      const headers = rawData[5];       // Row 6 headers
-      const dataRows = rawData.slice(6); // Row 7 onwards
-  
-      const normalize = (str) =>
-        str ? str.toString().trim().toLowerCase().replace(/\s+/g, " ") : "";
-  
-      const dateIndex = headers.findIndex(
-        (h) => normalize(h) === "date of leaving"
-      );
-      
-      // Check for Column D (index 3) for "Left This Month" count
-      let thisMonthCount = 0;
-      const now = new Date();
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      
-      if (dataRows.length > 0) {
-        // Use column D (index 3) for date of leaving
-        thisMonthCount = dataRows.filter(row => {
-          const dateStr = row[3]; // Column D (index 3)
-          if (dateStr) {
-            const parsedDate = parseSheetDate(dateStr);
-            return (
-              parsedDate &&
-              parsedDate.getMonth() === currentMonth &&
-              parsedDate.getFullYear() === currentYear
-            );
-          }
-          return false;
-        }).length;
-      }
+  data.forEach(row => {
+  // Active employee condition
+ 
+  console.log("Row check:", {
+    actual_date: row.actual_date,
+    leaving_date: row.leaving_date,
+  });
 
-      // Count leaving by month
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const monthlyLeaving = {};
-      
-      // Initialize monthly leaving data for the last 6 months
-      for (let i = 5; i >= 0; i--) {
-        const monthIndex = (now.getMonth() - i + 12) % 12;
-        const monthYear = `${months[monthIndex]} ${now.getFullYear()}`;
-        monthlyLeaving[monthYear] = { left: 0 };
-      }
-  
-      dataRows.forEach(row => {
-        const dateStr = row[dateIndex];
-        if (dateStr) {
-          const date = parseSheetDate(dateStr);
-          if (date) {
-            const monthYear = `${months[date.getMonth()]} ${date.getFullYear()}`;
-            if (monthlyLeaving[monthYear]) {
-              monthlyLeaving[monthYear].left += 1;
-            } else {
-              monthlyLeaving[monthYear] = { left: 1 };
-            }
-          }
+  if (row.actual_date && !row.leaving_date) {
+    activeCount++;
+  }
+
+
+
+  // Monthly hiring
+  if (row.date_of_joining) {
+    const date = new Date(row.date_of_joining);
+    const monthYear = `${months[date.getMonth()]} ${date.getFullYear()}`;
+    if (monthlyHiring[monthYear]) {
+      monthlyHiring[monthYear].hired += 1;
+    } else {
+      monthlyHiring[monthYear] = { hired: 1 };
+    }
+  }
+
+  // Designation count
+  if (row.designation) {
+    designationCounts[row.designation] =
+      (designationCounts[row.designation] || 0) + 1;
+  }
+});
+
+    // Convert designation counts to array (for charts)
+    const designationArray = Object.entries(designationCounts).map(
+      ([designation, employees]) => ({ designation, employees })
+    );
+    setDesignationData(designationArray);
+
+    // ✅ Set active employees properly
+    setActiveEmployee(activeCount);
+
+    return {
+      total: data.length,
+      active: activeCount,
+      monthlyHiring,
+    };
+  } catch (error) {
+    console.error("Error fetching joining count:", error);
+    return { total: 0, active: 0, monthlyHiring: {} };
+  }
+};
+
+
+const fetchLeaveCount = async () => {
+  try {
+    const { data, error } = await supabase
+      .from("leaving")
+      .select("date_of_leaving");
+
+    if (error) throw error;
+
+    let thisMonthCount = 0;
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const monthlyLeaving = {};
+
+    // Initialize last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthYear = `${months[month.getMonth()]} ${month.getFullYear()}`;
+      monthlyLeaving[monthYear] = { left: 0 };
+    }
+
+    data.forEach(row => {
+      if (row.date_of_leaving) {
+        const date = new Date(row.date_of_leaving);
+
+        // Left this month
+        if (
+          date.getMonth() === currentMonth &&
+          date.getFullYear() === currentYear
+        ) {
+          thisMonthCount++;
         }
-      });
-  
-      // Update states
-      setLeftEmployee(dataRows.length);
-      setLeaveThisMonth(thisMonthCount);
-  
-      return { total: dataRows.length, monthlyLeaving };
-  
-    } catch (error) {
-      console.error("Error fetching leave count:", error);
-      return { total: 0, monthlyLeaving: {} };
-    }
-  };
+
+        // Monthly leaving count
+        const monthYear = `${months[date.getMonth()]} ${date.getFullYear()}`;
+        if (monthlyLeaving[monthYear]) {
+          monthlyLeaving[monthYear].left += 1;
+        } else {
+          monthlyLeaving[monthYear] = { left: 1 };
+        }
+      }
+    });
+
+    // Update states
+    setLeftEmployee(data.length);
+    setLeaveThisMonth(thisMonthCount);
+
+    return { total: data.length, monthlyLeaving };
+  } catch (error) {
+    console.error("Error fetching leave count:", error);
+    return { total: 0, monthlyLeaving: {} };
+  }
+};
+
 
   const prepareMonthlyHiringData = (hiringData, leavingData) => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -354,7 +273,7 @@ const Dashboard = () => {
       ]);
         
         // Calculate total employees (JOINING + LEAVING)
-        setTotalEmployee(joiningResult.total + leavingResult.total);
+        setTotalEmployee(joiningResult.total );
         
         // Prepare the monthly hiring data for the chart
         const monthlyData = prepareMonthlyHiringData(
